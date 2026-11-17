@@ -1,0 +1,226 @@
+/* ===========================================================================
+   AMS admin - screen layer
+   ---------------------------------------------------------------------------
+   Layout that belongs to one screen family (media library, posts table, menus,
+   theme store, editor). Shell and component rules live in app.css; colours and
+   spacing resolve through the tokens in tokens.css, so both schemes and the
+   compact density apply here without extra rules.
+
+   Each family moves to its own file under screens/ as it is rebuilt.
+   =========================================================================== */
+
+textarea.code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9rem;min-height:20rem}
+.landing-audio-fieldset{margin:1.1rem 0 0;padding:.8rem;border:1px solid var(--line);border-radius:var(--radius-sm);min-width:0}
+.landing-audio-fieldset legend{padding:0 .35rem;font-size:var(--text-sm);font-weight:650}
+.landing-audio-list{display:grid;gap:.35rem;max-height:17rem;overflow:auto;padding:.25rem}
+.landing-audio-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.5rem .6rem;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface)}
+.landing-audio-row .check{min-width:0;flex:1;align-items:flex-start;overflow-wrap:anywhere}
+.landing-audio-row .check span{display:grid;min-width:0;gap:.1rem}
+.landing-audio-row .check strong{font-size:var(--text-sm);font-weight:600;overflow-wrap:anywhere}
+.landing-audio-row .check small{color:var(--muted);font-size:var(--text-xs)}
+.landing-audio-order{display:flex;align-items:center;gap:.35rem;margin:0;color:var(--muted);font-size:var(--text-xs);font-weight:500}
+.landing-audio-order input{width:4rem;min-height:2rem;padding:.25rem .4rem}
+#landing_audio_files{width:100%;max-width:100%;padding:.45rem;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);color:var(--fg)}
+.landing-upload-note{min-height:0;margin:.35rem 0 0}
+.landing-upload-note.is-error{color:var(--danger)}
+.landing-upload-queue{display:grid;gap:.35rem;margin:.4rem 0 0;max-height:14rem;overflow:auto}
+.landing-upload-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.45rem .6rem;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);font-size:var(--text-sm)}
+.landing-upload-name{min-width:0;overflow-wrap:anywhere}
+.landing-upload-state{flex:none;color:var(--muted);font-size:var(--text-xs);font-weight:600}
+.landing-upload-row.is-done .landing-upload-state{color:var(--ok)}
+.landing-upload-row.is-error .landing-upload-state{color:var(--danger);font-weight:650;text-align:right}
+.landing-upload-row.is-error{border-color:var(--danger)}
+@media(max-width:480px){.landing-audio-row{align-items:flex-start;flex-direction:column}.landing-audio-order{margin-left:1.8rem}.landing-upload-row{align-items:flex-start;flex-direction:column;gap:.2rem}.landing-upload-row.is-error .landing-upload-state{text-align:left}}
+.badge.published{color:var(--ok)}
+.badge.draft{color:var(--muted)}
+.badge.scheduled{color:var(--warn)}
+.flash.err{border-color:var(--danger);color:var(--danger)}
+.visual-editor{width:100%;min-height:20rem;padding:.75rem;border:1px solid var(--line);border-radius:.5rem;background:var(--bg);color:var(--fg);overflow-wrap:anywhere}
+.visual-editor:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.visual-editor:empty::before{content:attr(data-placeholder);color:var(--muted);pointer-events:none}
+.visual-editor img{max-width:100%;height:auto}
+.visual-editor .html-block{padding:.6rem;border:1px dashed var(--line);border-radius:.35rem}
+.visual-editor .video-responsive{position:relative;aspect-ratio:16/9;background:var(--media-bg);overflow:hidden}
+.visual-editor .video-responsive iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.media{display:grid;grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr));gap:.7rem}
+.media figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:.6rem;overflow:hidden;display:flex;flex-direction:column}
+.media .thumb{aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--muted);font-weight:700;overflow:hidden}
+.media img{width:100%;height:100%;object-fit:cover}
+.media figcaption{padding:.5rem;font-size:.78rem;word-break:break-all}
+.media .row{padding:0 .5rem .5rem;gap:.3rem}
+.media-admin{width:100%;max-width:100rem}
+/* The heading row now uses the shared page-head rhythm: same h1 size, same
+   bottom rule and the same baseline for the action button as every list screen. */
+.media-heading-row{display:flex;align-items:flex-end;flex-wrap:wrap;gap:var(--space-3);margin:0 0 var(--space-4);padding:0 0 var(--space-3);border-bottom:1px solid var(--line);position:relative}
+.media-heading-row h1{font-size:var(--text-xl);line-height:var(--leading-tight);font-weight:650;margin:0;min-width:0;overflow-wrap:anywhere}
+.media-heading-row .btn{align-self:center}
+/* The upload panel is positioned by the heading row, not by the button: the
+   button sits right after the title, so a panel hanging off its right edge ran
+   off the left of the screen and covered the heading. */
+.media-upload{position:static}
+.media-upload summary{list-style:none;cursor:pointer}
+.media-upload summary::-webkit-details-marker{display:none}
+.media-upload-form{position:absolute;top:calc(100% + .5rem);left:0;right:auto;z-index:5;width:min(30rem,100%);padding:1rem;background:var(--surface);border:1px solid var(--line);border-radius:.5rem;box-shadow:var(--shadow-lg)}
+.media-upload-form input[type=file]{width:100%;padding:.4rem;border:1px solid var(--line);border-radius:.35rem;background:var(--bg);color:var(--fg)}
+.media-upload-form .hint{margin:.5rem 0 .8rem}
+/* Toolbar: one row of controls on a shared 36px baseline, in the same order as
+   the posts list (view toggle, filters, bulk, then search on the right). The
+   controls used to be 30-34px tall with their own radius/type sizes, which is
+   why this bar did not line up with anything else in the panel. */
+.media-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-2) var(--space-3);margin-bottom:var(--space-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg)}
+.media-toolbar-left{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.media-view-toggle{display:flex;align-items:center;gap:1px;padding:2px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface-2)}
+.media-view-toggle a{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:calc(var(--control-h-sm) - 4px);height:calc(var(--control-h-sm) - 4px);border-radius:var(--radius-xs);line-height:1;color:var(--muted);text-decoration:none;font-size:1rem}
+.media-view-toggle a.current{background:var(--surface);color:var(--fg);box-shadow:var(--shadow-sm)}
+.media-view-toggle a.current{color:var(--fg)}
+.media-filter-form{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.media-filter-form select{width:auto;min-width:8rem;height:var(--control-h-sm);min-height:var(--control-h-sm);padding:0 2rem 0 var(--space-2);border-radius:var(--radius-sm);background-color:var(--surface);font-size:var(--text-sm)}
+.media-filter-form select:first-of-type{min-width:9rem}
+.media-filter-form .btn,.media-bulk-actions .btn,.media-bulk-toggle{height:var(--control-h-sm);min-height:var(--control-h-sm);padding:0 var(--space-3);border-radius:var(--radius-sm);font-size:var(--text-sm);font-weight:500}
+.media-bulk-actions{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.media-select-all{display:flex;align-items:center;gap:.35rem;margin:0 .2rem 0 0;font-size:.82rem;font-weight:400}
+.media-select-all input{accent-color:var(--accent)}
+/* Search field aligns with the selects beside it instead of sitting 4px proud. */
+.media-search-form{display:flex;align-items:center;gap:var(--space-2);margin:0 0 0 auto}
+.media-search-form label{margin:0;font-size:var(--text-sm);font-weight:400;color:var(--muted)}
+.media-search-form input{width:min(17rem,38vw);height:var(--control-h-sm);min-height:var(--control-h-sm);padding:0 var(--space-2);border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);color:var(--fg);font:inherit;font-size:var(--text-sm)}
+/* Gallery: every card is the same height and its action row sits on the same
+   baseline. The thumbnails were 1.25:1 while the delete/copy buttons wrapped on
+   the narrow tile, so tiles were 30px apart in height and the last row floated.
+   A fixed thumb ratio + a caption block that reserves both name and meta lines
+   + a footer pinned to the bottom keeps the grid on one baseline. */
+.media-gallery{grid-template-columns:repeat(auto-fill,minmax(11rem,1fr));gap:var(--space-3);align-items:stretch}
+.media-gallery .media-item{position:relative;display:flex;flex-direction:column;height:100%}
+.media-gallery .thumb{aspect-ratio:4/3;background:var(--bg);flex:0 0 auto}
+.media-gallery .media-item figcaption{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-height:3.1rem;padding:var(--space-2) var(--space-3) var(--space-2)}
+.media-gallery .media-item figcaption strong{font-size:var(--text-sm);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.media-gallery .media-item figcaption span{color:var(--muted);font-size:var(--text-xs);line-height:1.3}
+.media-gallery .media-item-actions{display:flex;align-items:center;flex-wrap:nowrap;gap:var(--space-1);margin-top:auto;padding:0 var(--space-2) var(--space-2)}
+.media-gallery .media-item-actions .btn{flex:1 1 0;min-width:0;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.media-gallery .media-select{position:absolute;z-index:2;top:.45rem;left:.45rem;display:flex;align-items:center;justify-content:center;width:1.55rem;height:1.55rem;margin:0;border-radius:.25rem;background:var(--surface);box-shadow:var(--shadow-sm)}
+.media-gallery .media-select input{width:1rem;height:1rem;accent-color:var(--accent)}
+.media-file-icon{display:inline-flex;align-items:center;justify-content:center;max-width:100%;overflow:hidden;width:4.4rem;height:3.3rem;border:1px solid var(--line);border-radius:.3rem;background:var(--surface);color:var(--muted);font-size:.75rem;font-weight:700;letter-spacing:.04em}
+.media-list-wrap{width:100%;overflow-x:auto;background:var(--surface);border:1px solid var(--line)}
+.media-list-table{width:100%;min-width:48rem;border-collapse:collapse;background:var(--surface);font-size:.86rem}
+.media-list-table th,.media-list-table td{text-align:left;padding:.6rem .55rem;border-top:1px solid var(--line);vertical-align:middle}
+.media-list-table th{border-top:0;color:var(--muted);font-size:.78rem;font-weight:600}
+.media-list-table tbody tr:nth-child(odd){background:var(--stripe)}
+.media-list-table .media-check-col{width:2.6rem;text-align:center}
+.media-list-table input[type=checkbox]{accent-color:var(--accent)}
+.media-list-file{display:flex;align-items:center;gap:.65rem;min-width:13rem}
+.media-list-file>span{display:flex;flex-direction:column;gap:.1rem;min-width:0}
+.media-list-file strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.media-list-file small{color:var(--muted);font-size:.76rem}
+.media-list-thumb{display:flex;align-items:center;justify-content:center;width:3.5rem;height:3.5rem;flex:0 0 3.5rem;overflow:hidden;background:var(--bg);border:1px solid var(--line);border-radius:.3rem}
+.media-list-thumb img{width:100%;height:100%;object-fit:cover}
+.media-list-table .media-item-actions{display:flex;align-items:center;gap:.3rem;flex-wrap:wrap}
+.media-empty{display:grid;place-items:center;min-height:22rem;color:var(--muted);font-size:1rem;text-align:center}
+.media-footer{display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap;margin-top:.75rem}
+@media (max-width:760px){
+  .media-toolbar{align-items:stretch}
+  .media-toolbar-left{width:100%}
+  .media-filter-form{flex:1}
+  .media-filter-form select{flex:1;min-width:0}
+  .media-search-form{width:100%;margin-left:0}
+  .media-search-form input{width:auto;flex:1;min-width:0}
+}
+.mis{list-style:none;margin:0;padding:0}
+.mi{display:flex;align-items:center;gap:.5rem;padding:.5rem;margin-bottom:.4rem;border:1px solid var(--line);border-radius:.5rem;background:var(--bg)}
+.mi.dragging{opacity:.6;border-color:var(--accent)}
+.mi .grow{display:grid;gap:.3rem;min-width:0}
+@media (min-width:640px){
+  .mi .grow{grid-template-columns:1fr 1.4fr}
+}
+.handle{cursor:grab;touch-action:none;user-select:none;padding:.6rem .3rem;color:var(--muted);letter-spacing:-.25em}
+.mi-btns{display:flex;gap:.2rem}
+.mi-btns button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:2.1rem;height:2.1rem;border:1px solid var(--line);border-radius:.4rem;background:var(--surface);color:var(--fg);font:inherit;cursor:pointer}
+.store{display:grid;gap:.8rem;grid-template-columns:repeat(auto-fill,minmax(min(100%,15rem),1fr))}
+.store-item{margin:0;display:flex;flex-direction:column}
+.store-item h3{margin:.7rem 0 .2rem;font-size:1.05rem}
+.store-item p{margin:0 0 .8rem;font-size:.9rem;flex:1}
+.swatch{height:5.5rem;border-radius:.5rem;border:1px solid var(--line)}
+form.inline{display:inline}
+.badge.pending{color:var(--warn)}
+.badge.approved{color:var(--ok)}
+.badge.spam{color:var(--danger)}
+.badge.trash{color:var(--muted)}
+.filters{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.9rem}
+.filters a{display:inline-block;padding:.3rem .7rem;border:1px solid var(--line);border-radius:2rem;text-decoration:none;color:var(--muted);font-size:.84rem;background:var(--surface)}
+.filters a.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.filters a b{font-weight:700}
+.list li.wrap{align-items:flex-start;flex-wrap:wrap}
+.list li.wrap .t a{white-space:normal}
+.table td.actions{text-align:right;white-space:nowrap}
+.posts-admin{width:100%;max-width:100rem}
+.posts-heading-row{display:flex;align-items:center;flex-wrap:wrap;gap:.55rem;margin-bottom:.7rem}
+.posts-heading-row h1{font-size:1.55rem;font-weight:500;margin:0}
+.posts-add{padding:.32rem .75rem;border-radius:.2rem;font-size:.87rem;font-weight:500}
+.posts-add.btn.ghost{background:var(--surface)}
+.posts-status-nav{display:flex;align-items:center;flex-wrap:wrap;gap:.45rem;margin:0 0 .55rem;font-size:.88rem}
+.posts-status-nav a{text-decoration:none;color:var(--accent)}
+.posts-status-nav a.current{color:var(--fg);font-weight:600}
+.posts-status-nav a:not(:last-child)::after{content:"|";margin-left:.45rem;color:var(--muted);font-weight:400}
+.posts-status-nav b{font-weight:400}
+.posts-search-row{display:flex;justify-content:flex-end;margin:.15rem 0 .65rem}
+.posts-search{display:flex;align-items:center;gap:.4rem}
+.posts-search input{width:min(18rem,48vw);padding:.4rem .55rem;border-radius:.2rem;background:var(--surface)}
+.posts-search .btn,.posts-bulk-control .btn,.post-filter-form .btn{padding:.35rem .65rem;border-radius:.2rem;font-size:.84rem;font-weight:500}
+.posts-controls-row{display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;margin-bottom:.35rem}
+.posts-bulk-control,.post-filter-form{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap}
+.posts-bulk-control select,.post-filter-form select{width:auto;min-width:8.5rem;padding:.38rem .55rem;border-radius:.2rem;background:var(--surface);font-size:.86rem}
+.post-filter-form select:first-of-type{min-width:8.5rem}
+.post-filter-form select:nth-of-type(2){min-width:9rem}
+.posts-bulk-form{margin:0}
+.posts-table-wrap{width:100%;overflow-x:auto;background:var(--surface);border:1px solid var(--line)}
+.posts-table{width:100%;min-width:58rem;border-collapse:collapse;background:var(--surface);font-size:.88rem}
+.posts-table th,.posts-table td{text-align:left;padding:.62rem .58rem;border-top:1px solid var(--line);vertical-align:middle}
+.posts-table th{color:var(--muted);font-size:.79rem;font-weight:600;white-space:nowrap;border-top:0}
+.posts-table tbody tr:nth-child(odd){background:var(--stripe)}
+.posts-table tbody tr:hover{background:var(--overlay)}
+.posts-table .posts-check-column{width:2.65rem;text-align:center;padding-left:.35rem;padding-right:.35rem}
+.posts-table .posts-check-column input{width:1rem;height:1rem;vertical-align:middle;accent-color:var(--accent)}
+.posts-sort{display:inline-flex;align-items:center;gap:.28rem;color:var(--accent);text-decoration:none}
+.posts-sort span{font-size:.95rem;color:var(--muted)}
+.posts-sort.active span{color:var(--accent)}
+.posts-title-cell{min-width:13rem}
+.posts-title-link{font-weight:600;text-decoration:none}
+.post-row-actions{display:flex;align-items:center;gap:.35rem;height:0;overflow:hidden;font-size:.78rem;opacity:0;transition:opacity .12s}
+.posts-table tr:hover .post-row-actions,.posts-table tr:focus-within .post-row-actions{height:auto;opacity:1}
+/* No hover on a touch screen: keep the actions there, or the only path to a
+   post from the old table is a pointer. */
+@media (hover:none){.post-row-actions{height:auto;opacity:1}}
+.posts-date-cell{white-space:nowrap}
+.posts-date-cell strong,.posts-date-cell time{display:block;font-size:.82rem;font-weight:400}
+.posts-date-cell strong{color:var(--fg)}
+.posts-date-cell time{color:var(--muted)}
+.posts-empty{text-align:center!important;padding:2rem!important;color:var(--muted)}
+.posts-table-footer{display:flex;align-items:center;justify-content:space-between;gap:.8rem;flex-wrap:wrap;margin:.4rem 0 1rem}
+.posts-count{color:var(--muted);font-size:.82rem}
+.posts-pagination{display:flex;justify-content:space-between;min-height:2rem}
+.pages-admin .posts-table{min-width:44rem}
+.page-draft-label{color:var(--muted);font-size:.82rem}
+@media (max-width:720px){
+  .posts-search-row{justify-content:stretch}
+  .posts-search{width:100%}
+  .posts-search input{width:auto;flex:1;min-width:0}
+  .posts-controls-row{align-items:flex-start}
+  .posts-bulk-control,.post-filter-form{width:100%}
+  .post-filter-form select{flex:1;min-width:0!important}
+  .post-row-actions{height:auto;opacity:1}
+}
+.pill.on{color:var(--ok)}
+.pill.off{color:var(--muted)}
+.widget-slot{border-top:1px solid var(--line);padding-top:.9rem;margin-top:.9rem}
+.widget-slot:first-of-type{border-top:0;padding-top:0;margin-top:0}
+
+/* ---------------------------------------------------------- preferences page */
+.pref-grid{display:grid;gap:var(--space-2);margin-top:var(--space-3)}
+@media (min-width:640px){.pref-grid{grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))}}
+.pref-option{display:flex;align-items:flex-start;gap:var(--space-3);margin:0;padding:var(--space-3);border:1px solid var(--line-strong);border-radius:var(--radius-md);background:var(--surface);font-weight:400;cursor:pointer}
+.pref-option:hover{border-color:var(--muted)}
+.pref-option.is-on{border-color:var(--accent);background:var(--accent-soft)}
+.pref-option input{margin-top:.15rem}
+.pref-option__body{display:flex;flex-direction:column;gap:.15rem;min-width:0}
+.pref-option__body b{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-base);color:var(--fg)}
+.pref-option__body b .ico{flex:0 0 auto}
+.pref-option__body span{color:var(--muted);font-size:var(--text-sm);overflow-wrap:anywhere}
