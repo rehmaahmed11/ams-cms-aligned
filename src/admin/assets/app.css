@@ -1,0 +1,792 @@
+/* ===========================================================================
+   AMS admin — app shell and component kit
+   ---------------------------------------------------------------------------
+   Layer 2 of 3. Every rule here is a component: the shell (top bar, rail,
+   content column) or a reusable primitive (button, field, card, table, badge,
+   notice, tabs, empty state, dialog, toast). Screen-specific layout lives in
+   screens/{name}.css. Colours, spacing and type come from tokens.css only.
+
+   Naming: components are plain class names (.card, .btn), their parts use
+   .card__head-style __ separators only where a single element class would be
+   ambiguous (.page-head__actions). Existing short utility names (.row, .muted,
+   .hint) are kept because every screen already uses them.
+   =========================================================================== */
+
+/* ------------------------------------------------------------------ reset */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--text-base) / var(--leading) var(--ui-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { color: var(--fg-strong); line-height: var(--leading-tight); margin: 0 0 var(--space-3); font-weight: 650; }
+h1 { font-size: var(--text-xl); letter-spacing: -0.01em; }
+h2 { font-size: var(--text-md); }
+h3 { font-size: var(--text-base); }
+p { margin: 0 0 var(--space-3); }
+/* Lists are structural, not prose: a `ul` used as a layout grid must not inherit
+   the browser's 40px indent, 14px block margin and bullets. Every list in the
+   panel sets its own spacing; this stops an unstyled one from drifting 40px to
+   the right of its neighbours (which is exactly what happened to `.stats`). */
+ul, ol { margin: 0; padding: 0; list-style: none; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+img, svg, video { max-width: 100%; }
+hr { border: 0; border-top: 1px solid var(--line); margin: var(--space-4) 0; }
+code, kbd, samp { font-family: var(--mono-font); font-size: 0.92em; }
+kbd {
+  display: inline-block; padding: 0.1em 0.4em; border: 1px solid var(--line);
+  border-bottom-width: 2px; border-radius: var(--radius-xs); background: var(--surface-2);
+  font-size: var(--text-xs); color: var(--fg);
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--accent-soft); color: var(--fg-strong); }
+
+.sr-only {
+  position: absolute !important; width: 1px !important; height: 1px !important;
+  padding: 0 !important; margin: -1px !important; overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important;
+}
+[hidden] { display: none !important; }
+
+.skip {
+  position: absolute; left: var(--space-3); top: -3rem; z-index: 100;
+  padding: var(--space-2) var(--space-4); border-radius: var(--radius-md);
+  background: var(--accent); color: var(--accent-fg); text-decoration: none; font-weight: 600;
+  transition: top var(--dur) var(--ease);
+}
+.skip:focus { top: var(--space-2); }
+
+/* ------------------------------------------------------------------ icons */
+.ico {
+  width: 1.15rem; height: 1.15rem; flex: 0 0 1.15rem;
+  fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
+  vertical-align: -0.2em;
+}
+.ico--sm { width: 0.95rem; height: 0.95rem; flex-basis: 0.95rem; }
+
+/* --------------------------------------------------------------- app shell */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: var(--space-3);
+  height: var(--topbar-h); padding: 0 var(--space-4);
+  background: var(--topbar-bg); color: var(--topbar-fg);
+  border-bottom: 1px solid var(--topbar-line);
+}
+/* One row, always. Nothing here may wrap or grow: the bar is exactly
+   --topbar-h tall and the rail sticks at exactly that offset, so anything that
+   overflows would slide under the bar or push it over the content. Long site
+   titles and long user names shrink to an ellipsis instead. */
+.topbar__brand {
+  display: flex; align-items: center; gap: var(--space-2);
+  color: inherit; text-decoration: none; font-weight: 650;
+  flex: 0 1 auto; min-width: 0;
+}
+.topbar__brand .ico { color: var(--accent); flex: 0 0 auto; }
+.topbar__title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.topbar__spacer { flex: 1 1 auto; min-width: 0; }
+.topbar__actions { display: flex; align-items: center; gap: var(--space-2); flex: 0 1 auto; min-width: 0; }
+.topbar .burger { flex: 0 0 auto; }
+.topbar__link {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: var(--control-h-sm); padding: 0 var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  color: var(--fg); text-decoration: none; font-size: var(--text-sm); white-space: nowrap;
+  flex: 0 0 auto;
+}
+.topbar__link:hover { border-color: var(--line-strong); background: var(--surface-2); }
+
+/* User menu: a <details> so it works without JavaScript. */
+.usermenu { position: relative; flex: 0 1 auto; min-width: 0; }
+.usermenu > summary {
+  display: flex; align-items: center; gap: var(--space-2); list-style: none;
+  height: var(--control-h-sm); padding: 0 var(--space-2) 0 var(--space-1);
+  border: 1px solid transparent; border-radius: var(--radius-pill);
+  cursor: pointer; font-size: var(--text-sm); color: var(--fg); min-width: 0;
+}
+.usermenu > summary::-webkit-details-marker { display: none; }
+.usermenu > summary:hover,
+.usermenu[open] > summary { background: var(--surface-2); border-color: var(--line); }
+.usermenu__name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.avatar {
+  display: grid; place-items: center; width: 1.65rem; height: 1.65rem; flex: 0 0 auto;
+  border-radius: 50%; background: var(--accent); color: var(--accent-fg);
+  font-size: var(--text-xs); font-weight: 700; text-transform: uppercase;
+}
+.usermenu__panel {
+  position: absolute; right: 0; top: calc(100% + var(--space-2)); z-index: 30;
+  width: max-content; min-width: 13rem; max-width: min(20rem, calc(100vw - 2rem)); padding: var(--space-1);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+.usermenu__panel a,
+.usermenu__panel button,
+.usermenu__panel label {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%;
+  padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--fg); font: inherit; font-size: var(--text-sm);
+  text-align: left; text-decoration: none; cursor: pointer; margin: 0;
+}
+.usermenu__panel a:hover, .usermenu__panel button:hover, .usermenu__panel label:hover { background: var(--surface-2); }
+.usermenu__label {
+  display: block; padding: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--muted); font-size: var(--text-xs); font-weight: 650;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.usermenu__sep { height: 1px; margin: var(--space-1) var(--space-2); background: var(--line); }
+.usermenu__schemes { display: flex; gap: var(--space-1); padding: 0 var(--space-2) var(--space-1); }
+.usermenu__schemes a {
+  display: flex; flex: 1; flex-direction: column; align-items: center; gap: 0.15rem;
+  padding: var(--space-2) var(--space-1); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  color: var(--muted); font-size: var(--text-xs); text-decoration: none; margin: 0;
+}
+.usermenu__schemes a:hover { border-color: var(--muted); color: var(--fg); }
+.usermenu__schemes a[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.usermenu__panel form { margin: 0; }
+
+.shell { display: grid; grid-template-columns: minmax(0, 1fr); min-height: calc(100dvh - var(--topbar-h)); min-width: 0; align-items: start; }
+
+/* Rail ------------------------------------------------------------------- */
+.rail {
+  position: fixed; z-index: 41; inset: 0 auto 0 0;
+  width: min(var(--rail-w), calc(100vw - 3rem)); height: 100dvh;
+  visibility: hidden; transform: translateX(-100%);
+  transition: transform var(--dur) var(--ease), visibility var(--dur);
+  background: var(--rail-bg); color: var(--rail-fg);
+  border-bottom: 1px solid var(--rail-line);
+  padding: var(--space-3) var(--space-2); min-height: 0; max-height: none; overflow-y: auto;
+  overflow-x: hidden; /* a collapsed rail is 3.75rem wide: never let a label spill sideways */
+  /* Column so the foot can be pinned to the bottom with `margin-top: auto`. */
+  display: flex; flex-direction: column;
+}
+#nav-t, #side-c { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+#nav-t:checked ~ .shell .rail { visibility: visible; transform: translateX(0); }
+.nav-backdrop { display: none; }
+@media (max-width: 767px) {
+  #nav-t:checked ~ .nav-backdrop { display: block; position: fixed; inset: 0; z-index: 40; background: var(--scrim); cursor: pointer; }
+}
+.burger {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--control-h); height: var(--control-h); margin-left: calc(-1 * var(--space-2));
+  border-radius: var(--radius-sm); cursor: pointer; color: inherit; user-select: none;
+}
+.burger:hover { background: var(--surface-2); }
+.topbar .burger:hover { background: var(--surface-2); }
+
+.rail__section { display: flex; flex-direction: column; gap: 1px; }
+
+/* One separator per *group*, not per item. Ten hairlines at 1px with a 13px
+   offset either side read as a ruled list and fight the group spacing; a single
+   inset line between sections reads as a section break. */
+.rail__sep {
+  height: 1px; background: var(--rail-line);
+  margin: var(--space-3) var(--space-3); border: 0;
+}
+/* Section heading, in place of the hairlines: a quiet micro-caps label says
+   what the group *is*, which is more use than a rule that only says something
+   ends here. --rail-muted is tuned for 13-14px secondary text and vanishes at
+   11px uppercase, so the colour is mixed up toward the foreground. */
+.rail__group {
+  padding: var(--space-4) var(--space-3) var(--space-2);
+  color: color-mix(in srgb, var(--rail-fg) 58%, var(--rail-bg));
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.rail__section > .rail__group:first-child { padding-top: var(--space-1); }
+
+/* Every rail row — section item, foot item, density button, collapse switch —
+   is one shared row: same height, same horizontal padding, same icon box, so
+   icons and labels line up into two perfectly straight columns. */
+.rail__item {
+  display: flex; align-items: center; gap: var(--space-3);
+  min-height: var(--rail-row-h);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  /* 14px at medium weight. Regular weight on a dark ground thins out, and a nav
+     list is UI, not body copy; the children below step down to 13px so the
+     hierarchy is section > child rather than everything at one size. */
+  color: var(--rail-fg); text-decoration: none;
+  font-size: var(--text-base); font-weight: 500; line-height: 1.2;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.rail__item:hover { background: var(--rail-hover); }
+.rail__item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Active row: a soft accent wash with an accent edge, not a solid blue slab.
+   The full fill competed with the page title and swallowed the relationship to
+   the submenu sitting directly under it. */
+.rail__item[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: #fff; font-weight: 650;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.rail__item[aria-current="page"]:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.rail__item[aria-current="page"] .rail__ico { opacity: 1; }
+/* 1.25rem balances 14px labels; 1.15rem next to them read undersized. */
+.rail__ico { flex: 0 0 1.25rem; width: 1.25rem; height: 1.25rem; opacity: 0.75; transition: opacity var(--dur-fast) var(--ease); }
+.rail__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail__bubble {
+  min-width: 1.35rem; padding: 0 0.35rem; border-radius: var(--radius-pill);
+  background: var(--danger); color: var(--on-danger); font-size: var(--text-xs); font-weight: 700;
+  text-align: center; line-height: 1.35rem;
+}
+/* Child links hang off the parent label, not off the parent icon: the indent is
+   the icon box + its gap, measured from the same 12px the rows are padded by. */
+/* Child links hang off the parent label, not off the parent icon. A 1px guide
+   rail drawn down the group ties the children to the item above; the flat list
+   could not show that relationship at all. */
+.rail__sub {
+  display: flex; flex-direction: column; gap: 1px;
+  margin: 2px 0 var(--space-3);
+  /* Parent row: 12px padding + 20px icon + 12px gap = the label's left edge. */
+  padding-left: calc(var(--space-3) + 1.25rem + var(--space-3));
+  position: relative;
+}
+.rail__sub::before {
+  content: ""; position: absolute;
+  /* Centre of the parent's icon column. */
+  left: calc(var(--space-3) + 0.625rem);
+  top: 2px; bottom: 2px; width: 1px;
+  background: var(--rail-line); border-radius: 1px;
+}
+.rail__sub a {
+  min-height: 1.75rem; display: flex; align-items: center;
+  /* No left padding: the container already lines the children up with the
+     parent label, so the text starts on exactly the same x as "Posts". */
+  padding: var(--space-1) var(--space-2) var(--space-1) 0; border-radius: var(--radius-xs);
+  color: var(--rail-muted); font-size: var(--text-sm); font-weight: 500;
+  line-height: 1.25; text-decoration: none;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.rail__sub a:hover { background: var(--rail-hover); color: var(--rail-fg); }
+/* Current child: white text plus a dot on the guide rail. A filled block made
+   the current child look like a second active *section*. */
+.rail__sub a[aria-current="page"] { color: #fff; font-weight: 600; position: relative; }
+.rail__sub a[aria-current="page"]::after {
+  content: ""; position: absolute;
+  left: calc(-1 * (var(--space-3) + 1.25rem + var(--space-3)) + var(--space-3) + 0.625rem);
+  top: 50%; width: 5px; height: 5px; margin-top: -2.5px;
+  border-radius: 50%; background: var(--accent);
+}
+/* The foot is pinned to the bottom of the rail: with a short section list it
+   used to float mid-column and read as more nav. */
+.rail__section { flex: 1 1 auto; }
+.rail__foot {
+  flex: 0 0 auto;
+  margin-top: var(--space-4); padding-top: var(--space-2);
+  border-top: 1px solid var(--rail-line);
+}
+/* Its rows were 13px against the sections' 14px, so the foot read as a footnote
+   in a different typeface. */
+.rail__foot .rail__item, .rail__foot button { font-size: var(--text-sm); }
+.rail__foot button,
+.rail__foot .rail__item { color: var(--rail-muted); }
+/* Was 12px padding against the section's 8px, which put the foot icons 4px to
+   the right of every icon above them. Same row, same padding, one column. */
+.rail__foot button {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%;
+  min-height: var(--rail-row-h);
+  padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm);
+  background: none; font: inherit; font-size: var(--text-base); text-align: left; cursor: pointer;
+}
+.rail__foot button:hover { background: var(--rail-hover); color: var(--rail-fg); }
+/* A filled box directly under two plain rows made the switch look like the
+   selected item. It is a control, not a destination: same row metrics as
+   everything else, quiet colour, and an inset top rule to separate it from the
+   two links above. */
+.rail__collapse {
+  display: none; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-2); padding: var(--space-2) var(--space-3);
+  min-height: var(--rail-row-h);
+  border-top: 1px solid var(--rail-line);
+  border-radius: var(--radius-md);
+  background: none; color: var(--rail-muted);
+  font-size: var(--text-sm); font-weight: 500;
+  cursor: pointer; user-select: none;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.rail__collapse:hover { background: var(--rail-hover); color: var(--rail-fg); }
+.rail__collapse .ico { opacity: 0.75; }
+.rail__collapse .ico { transition: transform var(--dur) var(--ease); }
+
+/* Main ------------------------------------------------------------------- */
+/* A closed off-canvas rail and a wide table can still report a document wider
+   than the viewport on some screens; clip rather than let the whole panel
+   scroll sideways. `clip` (not `hidden`) keeps position: sticky working. */
+html { overflow-x: clip; }
+.main { padding: var(--content-pad) var(--content-pad) var(--space-12); min-width: 0; }
+.main__inner { min-width: 0; max-width: var(--content-max); margin: 0 auto; }
+.main--wide .main__inner { min-width: 0; max-width: none; }
+
+@media (min-width: 768px) {
+  .burger { display: none; }
+  .shell { grid-template-columns: auto minmax(0, 1fr); }
+  .rail {
+    position: sticky; top: var(--topbar-h); z-index: 1; inset-inline-start: auto; bottom: auto;
+    visibility: visible; transform: none; min-height: 0;
+    width: var(--rail-w); height: calc(100dvh - var(--topbar-h)); max-height: none;
+    overflow-y: auto; overflow-x: hidden; padding: var(--space-3) var(--space-2);
+    border-bottom: 0; border-right: 1px solid var(--rail-line);
+    scrollbar-gutter: stable;
+  }
+  #side-c:checked ~ .shell .rail { width: var(--rail-w-collapsed); padding-inline: var(--space-1); }
+  #side-c:checked ~ .shell .rail__label,
+  #side-c:checked ~ .shell .rail__bubble,
+  #side-c:checked ~ .shell .rail__sub,
+  #side-c:checked ~ .shell .rail__sep,
+  #side-c:checked ~ .shell .rail__group { display: none; }
+  #side-c:checked ~ .shell .rail__item,
+  #side-c:checked ~ .shell .rail__foot button,
+  #side-c:checked ~ .shell .rail__collapse { justify-content: center; padding-inline: 0; gap: 0; }
+  #side-c:checked ~ .shell .rail__collapse .ico { transform: rotate(180deg); }
+  .rail__collapse { display: flex; width: 100%; justify-content: center; }
+  /* Icons only: one row per item with no labels between them, so they need more
+     air than the labelled list does. */
+  .rail__section { gap: var(--space-1); }
+  #side-c:checked ~ .shell .rail__group { display: none; }
+  /* This block used to pull section items to 8px inline padding while the foot
+     items kept 12px — the four-pixel step that put two icon columns and two
+     label columns in the rail. Every row now takes its padding from one rule. */
+  .rail__item { gap: var(--space-3); }
+  .main { padding: var(--space-6) var(--space-8) var(--space-12); }
+}
+
+/* ------------------------------------------------------------ page header */
+.page-head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3);
+  margin-bottom: var(--space-4); padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.page-head__text { flex: 1 1 16rem; min-width: 0; }
+.page-head h1 { margin: 0; font-size: var(--text-xl); }
+.page-head__sub { margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--text-sm); }
+.page-head__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; }
+.page-head__actions form { margin: 0; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); padding: 0; list-style: none; color: var(--muted); font-size: var(--text-sm); }
+.crumbs li { display: flex; align-items: center; gap: var(--space-2); }
+.crumbs li + li::before { content: "›"; color: var(--muted); font-size: 1.2em; }
+.crumbs a { color: var(--muted); text-decoration: none; }
+.crumbs a:hover { color: var(--fg); text-decoration: underline; }
+.crumbs [aria-current="page"] { color: var(--fg); }
+
+/* Tabs under a page header. */
+.tabs {
+  display: flex; flex-wrap: wrap; gap: var(--space-1);
+  /* Each tab pulls itself down 1px so its 2px underline covers the strip's 1px
+     border. The extra row-gap hands that pixel back, so a wrapped second row
+     never sits on top of the row above it (which clipped the underline). */
+  row-gap: calc(var(--space-1) + 1px);
+  margin: 0 0 var(--space-4); padding: 0; list-style: none;
+  border-bottom: 1px solid var(--line);
+}
+.tabs a, .tabs button {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); margin-bottom: -1px;
+  border: 0; border-bottom: 2px solid transparent; background: none;
+  color: var(--muted); font: inherit; font-size: var(--text-sm); text-decoration: none; cursor: pointer;
+  min-width: 0; overflow-wrap: anywhere;
+}
+.tabs a > .ico, .tabs button > .ico { flex: 0 0 auto; }
+.tabs a:hover, .tabs button:hover { color: var(--fg); }
+.tabs [aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* --------------------------------------------------------- search + palette */
+.topbar__search {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: var(--control-h-sm); padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--surface-2); color: var(--muted);
+  font: inherit; font-size: var(--text-sm); text-decoration: none; cursor: pointer;
+  flex: 0 1 auto; min-width: 0;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.topbar__search:hover { border-color: var(--muted); background: var(--surface); color: var(--fg); }
+.topbar__search .ico { flex: 0 0 auto; }
+.topbar__search-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.topbar__kbd {
+  padding: 0 0.3rem; border: 1px solid var(--line); border-radius: var(--radius-xs);
+  background: var(--surface); color: var(--muted); font-size: var(--text-xs); line-height: 1.4;
+  flex: 0 0 auto;
+}
+@media (max-width: 720px) {
+  .topbar__search-label, .topbar__kbd, .topbar__link-label { display: none; }
+  .topbar__search { padding: 0 var(--space-2); border-radius: var(--radius-sm); }
+}
+@media (max-width: 420px) {
+  .topbar { gap: var(--space-2); padding-inline: var(--space-3); }
+  .topbar__actions { gap: var(--space-1); }
+  .usermenu__name { display: none; }
+}
+
+.palette {
+  /* A column: the search field on top, the results in the middle (the only
+     part that scrolls), the shortcuts pinned at the bottom. Without the height
+     cap the results grew until the dialog reached the viewport, and
+     `overflow: hidden` then cut the help bar off the bottom of the screen.
+
+     `display` is deliberately NOT set on the closed dialog: a class selector
+     beats the browser's `dialog:not([open]) { display: none }`, so a bare
+     `.palette { display: flex }` painted this whole dialog — the "Create" and
+     "Go to" command list — as an extra panel below the content of every admin
+     page. The layout is scoped to `[open]` so the palette stays modal-only. */
+  width: min(40rem, calc(100% - 2rem));
+  max-height: calc(100dvh - min(10vh, 6rem) - 2rem);
+  padding: 0; margin-top: min(10vh, 6rem);
+  border-radius: var(--radius-lg); overflow: hidden;
+}
+
+/* Belt and braces: even if another rule sets a display on .palette, a closed
+   dialog never takes part in the page flow. */
+.palette:not([open]) { display: none; }
+
+.palette[open] { display: flex; flex-direction: column; }
+.palette::backdrop { background: var(--scrim); }
+.palette__form { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); margin: 0; flex: 0 0 auto; }
+.palette__ico { display: flex; color: var(--muted); }
+.palette__form input {
+  flex: 1; min-width: 0; border: 0; background: none; padding: var(--space-1) 0;
+  font-size: var(--text-md); color: var(--fg);
+}
+.palette__form input:focus-visible { outline: none; }
+.palette__form:focus-within { box-shadow: inset 0 -2px 0 var(--accent); }
+.palette__close { color: var(--muted); flex: 0 0 auto; }
+.palette__results { flex: 1 1 auto; min-height: 0; max-height: min(60vh, 26rem); overflow-y: auto; padding: var(--space-2); }
+.palette__help { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-4); border-top: 1px solid var(--line); background: var(--surface-2); font-size: var(--text-xs); flex: 0 0 auto; }
+.palette__help kbd { margin-right: -0.35rem; }
+.palette__scheme { margin-left: auto; }
+
+.search-group { margin: 0 0 var(--space-2); }
+.search-group__title {
+  margin: 0; padding: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--muted); font-size: var(--text-xs); font-weight: 650;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.search-hits { margin: 0; padding: 0; list-style: none; }
+.search-hit {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+  color: var(--fg); text-decoration: none;
+}
+.search-hit:hover, .search-hit.is-active { background: var(--accent-soft); text-decoration: none; }
+.search-hit__ico { display: flex; color: var(--muted); flex: 0 0 auto; }
+.search-hit.is-active .search-hit__ico, .search-hit:hover .search-hit__ico { color: var(--accent); }
+.search-hit__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.search-hit__body b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-hit__body span { color: var(--muted); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-empty { margin: 0; padding: var(--space-6) var(--space-4); text-align: center; color: var(--muted); font-size: var(--text-sm); }
+.search-results { margin-top: var(--space-4); }
+
+/* Rail collapse + mobile toggle ------------------------------------------- */
+/* Two halves of one control. The switch (`.rail__collapse`) is the last item
+   of the rail's foot and flips the checkbox the CSS reads; the link
+   (`.rail-toggle`) sits in the top bar and writes the same state to a cookie,
+   because a collapsed rail is too narrow to hold the switch. Both rules have
+   to stay below the shell rules: `display` here is what makes them appear. */
+.rail-toggle {
+  display: none; align-items: center; justify-content: center;
+  width: var(--control-h-sm); height: var(--control-h-sm); flex: 0 0 auto;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--muted); text-decoration: none;
+}
+.rail-toggle:hover { border-color: var(--line); background: var(--surface-2); color: var(--fg); }
+.rail-toggle .ico { transition: transform var(--dur) var(--ease); }
+@media (min-width: 768px) {
+  /* Pointing left means "collapse"; the collapsed rail flips it to "expand". */
+  .rail-toggle { display: inline-flex; }
+  .rail-toggle .ico { transform: rotate(180deg); }
+  #side-c:checked ~ .topbar .rail-toggle .ico { transform: none; }
+}
+.rail__foot form { margin: 0; }
+.rail__foot .rail__item,
+.rail__foot button {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%;
+  padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--rail-muted); font: inherit; font-size: var(--text-sm);
+  text-align: left; text-decoration: none; cursor: pointer;
+}
+.rail__foot .rail__item:hover, .rail__foot button:hover { background: var(--rail-hover); color: var(--rail-fg); }
+
+/* ------------------------------------------------------------------ cards */
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: var(--space-4);
+  margin-bottom: var(--space-4); box-shadow: var(--shadow-sm); min-width: 0;
+}
+/* A card that follows another element is spaced by its own top margin only when
+   the previous element is not itself a card — otherwise the two 16px margins
+   collapse and a heading above the pair sits 22px away but 16px below. */
+.card + .card { margin-top: 0; }
+/* A heading used as a section label above a card ("Built-in", "Installed")
+   gets a tighter, symmetric gap instead of the default 12px block margin. */
+h2 + .card, h3 + .card { margin-top: 0; }
+/* Section headings get the same 16px above as a card does, so a column of
+   [title, heading, card, heading, card] reads at one rhythm. Scoped away from
+   cards and dialogs, whose first heading must stay flush with the padding. */
+h2[id], h2.section-title, .main__inner > h2, .main__inner > h3 { margin-top: var(--space-4); }
+.main__inner > h2:first-child, .main__inner > h3:first-child,
+.card > h2, .card > h3, dialog h2 { margin-top: 0; }
+h2, h3, h4 { scroll-margin-top: calc(var(--topbar-h) + var(--space-4)); }
+.card > h2:first-child, .card > h3:first-child { margin-top: 0; }
+.card--flush { padding: 0; overflow: hidden; }
+.card--muted { background: var(--surface-2); }
+/* The header owns the card's inner padding. A padded card then puts its body
+   flush under it (the header already supplied the inset), and a flush card's
+   rows are inset with padding-* instead of margins so the hover and the divider
+   still reach the card edge. Before this, a flush card's heading sat at x=257 —
+   1px inside the border, hard against the corner — while its list text started
+   at x=273: the "poked in the corner" look. */
+.card__head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  /* A header holding only a title was 20px, one holding a button or a badge was
+     30px — so two titles side by side sat 5px apart. */
+  min-height: var(--control-h-sm);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: 0;
+}
+.card__head h2, .card__head h3 {
+  margin: 0; padding: 0; border: 0; min-width: 0; overflow-wrap: anywhere;
+  font-size: var(--text-md); line-height: var(--leading-tight);
+}
+.card__head .btn { margin-left: auto; }
+/* A title with nothing beside it keeps its own size; one in a row centres. */
+.card__head:has(> .btn, > .badge, > .card__count) h2 { align-self: center; }
+
+/* Cards that are not flush have padding; the header's bottom inset is what the
+   body sits under, so the body must not add a second one. */
+.card:not(.card--flush) > .card__head { margin-bottom: var(--space-3); }
+.card:not(.card--flush) > .card__head { padding-inline: 0; padding-top: 0; }
+
+
+/* --------------------------------------------------------------- utilities */
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.between { justify-content: space-between; }
+.grow { flex: 1; min-width: 0; }
+.muted { color: var(--muted); }
+.hint { color: var(--muted); font-size: var(--text-sm); font-weight: 400; margin: var(--space-1) 0 0; }
+.pos { color: var(--ok); font-weight: 600; }
+.neg { color: var(--danger); font-weight: 600; }
+.pre {
+  margin: 0 0 var(--space-3); padding: var(--space-3);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  overflow-x: auto; font-size: var(--text-sm); font-family: var(--mono-font);
+}
+.grid2 { display: grid; gap: var(--space-4); }
+@media (min-width: 700px) { .grid2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.grid3 { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+
+/* ------------------------------------------------------------------ buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: var(--control-h); padding: 0 var(--space-4);
+  border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  background: var(--accent); color: var(--accent-fg);
+  font: inherit; font-size: var(--text-sm); font-weight: 600; line-height: 1;
+  text-decoration: none; cursor: pointer; white-space: nowrap;
+  transition: filter var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.btn:hover { filter: brightness(1.06); text-decoration: none; }
+.btn:active { filter: brightness(0.95); }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; filter: none; }
+.btn.ghost { background: var(--surface); border-color: var(--line-strong); color: var(--fg); }
+.btn.ghost:hover { background: var(--surface-2); border-color: var(--muted); }
+.btn.danger { background: var(--surface); border-color: var(--danger); color: var(--danger); }
+.btn.danger:hover { background: var(--danger-soft); }
+.btn.quiet { background: none; border-color: transparent; color: var(--accent); }
+.btn.quiet:hover { background: var(--accent-soft); }
+.btn.small { min-height: var(--control-h-sm); padding: 0 var(--space-3); font-size: var(--text-sm); font-weight: 500; }
+.btn.icon { padding: 0; width: var(--control-h); }
+.btn.icon.small { width: var(--control-h-sm); }
+form.inline { display: inline; }
+.btn-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* ------------------------------------------------------------------- forms */
+label { display: block; margin: var(--space-3) 0 var(--space-1); font-size: var(--text-sm); font-weight: 650; color: var(--fg); }
+label:first-child { margin-top: 0; }
+
+/* Field rhythm ------------------------------------------------------------
+   A settings form at 1150px wide gives a 1100px text field: the eye loses the
+   label-to-value link and long values are hard to scan. Fields stop at a
+   readable measure; a `.field-wide` modifier opts an individual control back
+   into the full width (code areas, file lists, selects that need it). */
+.card > input:not(.field-wide):not([type="hidden"]),
+.card > select:not(.field-wide),
+.card > textarea:not(.field-wide),
+.card > .field:not(.field-wide) input,
+.card > .field:not(.field-wide) select,
+.card > .field:not(.field-wide) textarea { max-width: var(--form-max); }
+.card > .hint, .card > p.hint { max-width: var(--prose-max); }
+textarea.code, textarea.field-wide, .pre { max-width: 100%; }
+label.check { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0; font-weight: 400; }
+input[type="checkbox"], input[type="radio"] { width: 1rem; height: 1rem; margin: 0; accent-color: var(--accent); }
+input[type="text"], input[type="email"], input[type="password"], input[type="url"],
+input[type="number"], input[type="search"], input[type="datetime-local"], input[type="date"],
+input[type="file"], select, textarea {
+  width: 100%; min-height: var(--control-h); padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--fg); font: inherit; font-size: var(--text-base);
+  /* An input sizes to its content by default, so a bare `height` made a search
+     field sit 3px shorter than the button beside it. A shared control height,
+     box-sizing and a line-height that fits the padding keeps every control in a
+     row on the same baseline. */
+  height: var(--control-h); box-sizing: border-box; line-height: 1.25;
+}
+textarea { height: auto; }
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.85; }
+input:hover, select:hover, textarea:hover { border-color: var(--muted); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+input:disabled, select:disabled, textarea:disabled { background: var(--surface-2); color: var(--muted); }
+textarea { min-height: 6rem; resize: vertical; line-height: var(--leading); }
+textarea.code {
+  min-height: 18rem; font-family: var(--mono-font); font-size: var(--text-sm);
+  line-height: var(--leading-prose); tab-size: 2;
+}
+select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 1.1rem) 55%, calc(100% - 0.75rem) 55%; background-size: 0.35rem 0.35rem, 0.35rem 0.35rem; background-repeat: no-repeat; padding-right: 2.2rem; }
+.checks { max-height: 11rem; overflow: auto; padding: var(--space-2) var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
+.field-error, .form-error { color: var(--danger); font-size: var(--text-sm); margin: var(--space-1) 0 0; }
+
+/* ------------------------------------------------------------------- badges */
+.badge {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: 0.1rem var(--space-2); border-radius: var(--radius-pill);
+  background: var(--surface-3); color: var(--muted);
+  font-size: var(--text-xs); font-weight: 650; white-space: nowrap;
+}
+.badge.published, .badge.approved, .badge.on { background: var(--ok-soft); color: var(--ok); }
+.badge.draft, .badge.trash, .badge.off { background: var(--surface-3); color: var(--muted); }
+.badge.scheduled, .badge.pending { background: var(--warn-soft); color: var(--warn); }
+.badge.spam { background: var(--danger-soft); color: var(--danger); }
+.badge--outline { background: none; border: 1px solid currentColor; }
+.pill { display: inline-block; font-size: var(--text-xs); font-weight: 700; padding: 0.1rem var(--space-2); border-radius: var(--radius-pill); border: 1px solid currentColor; }
+.pill.on { color: var(--ok); }
+.pill.off { color: var(--muted); }
+
+/* --------------------------------------------------------- notices & toasts */
+.notice, .flash {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4); margin: 0 0 var(--space-4);
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm); background: var(--surface); font-size: var(--text-sm);
+}
+.notice > .ico, .flash > .ico { margin-top: 0.1rem; color: var(--accent); flex: 0 0 auto; }
+/* A notice usually carries a filename or a path; it breaks rather than pushing
+   the icon out of the box. */
+.notice > div, .flash > span { min-width: 0; overflow-wrap: anywhere; }
+.flash { border-left-color: var(--ok); }
+.flash .ico { color: var(--ok); }
+.flash.err { border-left-color: var(--danger); color: var(--danger); }
+.flash.err .ico { color: var(--danger); }
+.notice.warn { border-left-color: var(--warn); }
+.notice.danger { border-left-color: var(--danger); }
+.toasts {
+  position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 90;
+  display: flex; flex-direction: column; gap: var(--space-2); max-width: min(24rem, calc(100vw - 2rem));
+}
+
+/* ------------------------------------------------------------------ tables */
+.table { width: 100%; border-collapse: collapse; font-size: var(--text-base); }
+.table th, .table td { padding: var(--space-2) var(--space-3); border-top: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.table thead th {
+  border-top: 0; color: var(--muted); font-size: var(--text-xs); font-weight: 650;
+  text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
+}
+.table tbody tr:hover { background: var(--surface-2); }
+.table td.actions { text-align: right; white-space: nowrap; }
+.table-wrap { min-width: 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.table-wrap .table thead th { background: var(--surface-2); }
+
+/* -------------------------------------------------------------------- lists */
+.list { margin: 0; padding: 0; list-style: none; }
+.list li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--line); }
+.list li:first-child { border-top: 0; }
+.list .t { flex: 1; min-width: 0; }
+.list .t a { display: block; overflow: hidden; color: var(--fg); font-weight: 600; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.list .t a:hover { color: var(--accent); }
+.list .t small, .list .excerpt, .list .who { color: var(--muted); font-size: var(--text-sm); min-width: 0; overflow-wrap: anywhere; }
+.list li.wrap { align-items: flex-start; flex-wrap: wrap; }
+.list li.wrap .t a { white-space: normal; }
+.list .excerpt { display: -webkit-box; margin-top: var(--space-1); overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+/* ---------------------------------------------------------- stats and tiles */
+.stats { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); margin-bottom: var(--space-4); }
+.stat {
+  display: block; padding: var(--space-3) var(--space-4);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  color: var(--fg); text-decoration: none;
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.stat:hover { border-color: var(--accent); transform: translateY(-1px); }
+.stat b { display: block; font-size: var(--text-2xl); font-weight: 650; line-height: 1.1; overflow-wrap: anywhere; }
+.stat span { color: var(--muted); font-size: var(--text-sm); }
+.tile {
+  display: block; padding: var(--space-4);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  color: var(--fg); text-decoration: none;
+}
+.tile:hover { border-color: var(--accent); }
+.tile b { display: block; margin-bottom: var(--space-1); overflow-wrap: anywhere; }
+.tile span { color: var(--muted); font-size: var(--text-sm); }
+
+/* ------------------------------------------------------------- description */
+.kv { display: grid; grid-template-columns: minmax(7rem, 12rem) minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-base); }
+.kv dt { color: var(--muted); }
+/* Values are often a slug, a URL or a file path: let them break instead of
+   stretching the card past its column and spilling out of the panel. */
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* -------------------------------------------------------------- empty state */
+.empty {
+  display: grid; place-items: center; gap: var(--space-2);
+  padding: var(--space-10) var(--space-4); text-align: center; color: var(--muted);
+}
+.empty__ico {
+  display: grid; place-items: center; width: 3rem; height: 3rem;
+  border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+}
+.empty__ico .ico { width: 1.4rem; height: 1.4rem; flex-basis: 1.4rem; }
+.empty strong { color: var(--fg); font-size: var(--text-md); font-weight: 600; }
+.empty p { margin: 0; max-width: 32rem; font-size: var(--text-sm); }
+.empty .btn { margin-top: var(--space-2); }
+
+/* -------------------------------------------------------------- pagination */
+.pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); min-height: 2rem; margin-top: var(--space-3); }
+.pagination > div { flex: 0 0 auto; }
+.pagination__info { color: var(--muted); font-size: var(--text-sm); flex: 0 1 auto; min-width: 0; text-align: center; }
+
+/* ------------------------------------------------------------------ dialogs */
+dialog {
+  width: min(38rem, calc(100% - 2rem)); max-height: calc(100dvh - 4rem);
+  padding: var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  background: var(--surface); color: var(--fg); box-shadow: var(--shadow-lg);
+  /* A dialog with a tall form (the HTML block, the media picker on a short
+     screen) has to scroll itself: without this the actions row fell outside the
+     box and the only buttons in it were unreachable. */
+  overflow: auto; overscroll-behavior: contain;
+}
+dialog::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
+dialog h2 { margin-top: 0; }
+dialog textarea { min-height: 12rem; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
+
+/* ------------------------------------------------------------------- errors */
+.error-page { max-width: 30rem; margin: var(--space-10) auto; text-align: center; }
+.error-page h1 { font-size: 2.5rem; color: var(--muted); }
+.error-page pre { text-align: left; }
+
+/* -------------------------------------------------------------- auth screen */
+.auth { max-width: 24rem; margin: 0 auto; padding: var(--space-10) var(--space-4); }
+.auth h1 { text-align: center; }
+.auth .card { padding: var(--space-5); }
+
+/* -------------------------------------------------- editor heading + misc */
+.editor-heading { gap: var(--space-4); margin-top: var(--space-4); }
+.editor-heading > label { margin: 0; }
