@@ -1,0 +1,37 @@
+# Cloudflare Worker — AMS CMS (Aligned)
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "ams-cms-aligned"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+# ---------------------------------------------------------------------------
+# D1 Database — name: bcms
+# Create it once with:  npm run db:create        (wrangler d1 create bcms)
+# Then paste the returned database_id below.
+# ---------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "bcms"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+# ---------------------------------------------------------------------------
+# KV Namespace — name: bcms
+# Create it once with:  npm run kv:create        (wrangler kv namespace create bcms)
+# Then paste the returned id below (and as preview_id for local dev).
+# In the Cloudflare dashboard the namespace will show as "bcms".
+# ---------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+preview_id = "REPLACE_WITH_YOUR_KV_PREVIEW_ID"
+
+[vars]
+ENVIRONMENT = "production"
+
+# Optional: set a secret for write protection (recommended in production)
+#   npx wrangler secret put ADMIN_TOKEN
+# Locally, put ADMIN_TOKEN=... in a .dev.vars file (see .dev.vars.example).
+# If ADMIN_TOKEN is not set, writes are open (local dev only).
