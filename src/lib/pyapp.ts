@@ -1,0 +1,513 @@
+/**
+ * Python apps embedded in a post or page.
+ *
+ * The editor stores one as plain, sanitizer-safe markup:
+ *
+ *   <figure class="python-app align-center" style="width:100%;height:420px" title="app.py">
+ *     <pre><code>…escaped source…</code></pre>
+ *   </figure>
+ *
+ * With JavaScript off that is a readable code listing. With it on, the public
+ * page swaps the listing for an iframe of `/__pyapp/runner`, which runs the
+ * program with Pyodide (CPython compiled to WebAssembly) in the visitor's
+ * browser. Nothing is ever executed on the server.
+ *
+ * Isolation is the point of the iframe: it is sandboxed without
+ * `allow-same-origin`, so the program runs in an opaque origin with no cookies,
+ * no storage and no way to reach the panel, whoever wrote it. Inside it the
+ * interpreter lives in a Web Worker, so a busy loop cannot freeze the page and
+ * Stop/Restart is simply ending the worker.
+ */
+import { PY_BOOTSTRAP } from './pyapp-bootstrap';
+
+/** Pinned so a published app keeps running the interpreter it was tested with. */
+export const PYODIDE_VERSION = '314.0.8';
+export const PYODIDE_BASE = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+export const PYAPP_RUNNER_PATH = '/__pyapp/runner';
+
+/** The runner's own policy: it replaces (not inherits) the site's CSP. */
+export const PYAPP_RUNNER_CSP = [
+  "default-src 'none'",
+  // The worker is a blob:; the interpreter is fetched from the CDN inside it.
+  "script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net",
+  "worker-src blob:",
+  "style-src 'unsafe-inline'",
+  "img-src data: blob:",
+  // Only the pinned interpreter CDN and the QR sample's pinned package sources
+  // are reachable during startup. The worker disables network APIs before user
+  // code runs, so app code cannot send selected files to arbitrary hosts.
+  "connect-src https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org",
+  "frame-ancestors 'self'",
+  // `allow-downloads` lets a program hand the visitor a file it made (a PDF,
+  // a CSV); without it Chrome silently drops the click on that link.
+  "sandbox allow-scripts allow-downloads",
+].join('; ');
+
+const inlineJs = (value: string): string => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+
+const WORKER_JS = `
+var pending=null,pendingFile=null,pendingGui=null,booted=0,running=0,base='',index='',boot='';
+function send(kind,value){
+  // Python hands a produced file over as JSON; the runner wants an object.
+  if(kind==='file'&&typeof value==='string'){try{value=JSON.parse(value)}catch(e){return}}
+  postMessage({t:String(kind),s:value});
+}
+// A classic worker, not a module worker: this frame has an opaque origin (it is
+// sandboxed without allow-same-origin), and in Chrome a module worker started
+// from a blob: URL there never starts and never reports why. importScripts and
+// a global loadPyodide() (pyodide.js, not pyodide.mjs) need no modules at all.
+self.onmessage=function(e){
+  var m=e.data||{};
+  if(m.t==='config'&&!booted){booted=1;base=m.base;index=m.index||m.base;boot=m.boot}
+  if(m.t==='line'&&pending){var r=pending;pending=null;r(m.s);return}
+  // Files stay JSON on both hops: a JS array of objects would reach Python as
+  // proxies, not dicts.
+  if(m.t==='files'&&pendingFile){var p=pendingFile;pendingFile=null;p(m.files&&m.files.length?JSON.stringify(m.files):'');return}
+  if(m.t==='gui-result'&&pendingGui){var g=pendingGui;pendingGui=null;g(JSON.stringify(m.result||{}));return}
+  if(m.t!=='run'||!booted||running)return;
+  running=1;
+  (async function(){
+    try{
+      if(!self.loadPyodide)await importScripts(base+'pyodide.js');
+      if(!self.loadPyodide)throw new Error('pyodide.js did not define loadPyodide');
+      var py=await self.loadPyodide({indexURL:index});
+      postMessage({t:'status',s:'Preparing…'});
+      try{await py.loadPackagesFromImports(m.code,{messageCallback:function(){},errorCallback:function(){}})}catch(err){}
+      // The QR sample is the only PyPI package we fetch. Install it before
+      // locking down networking; its pinned, pure-Python wheel never receives
+      // visitor input or selected files.
+      if(/micropip\\.install\\s*\\(\\s*['"]qrcode==8\\.2['"]/.test(m.code)){
+        await py.loadPackage('micropip');
+        await py.runPythonAsync("import micropip; await micropip.install('qrcode==8.2')");
+      }
+      // File data is handed to this worker with postMessage, never by HTTP.
+      // Once Pyodide and its approved packages are ready, disable network and
+      // nested-worker APIs before running author-supplied Python.
+      var blocked=function(){return Promise.reject(new Error('Network access is disabled inside this Python app.'))};
+      self.fetch=blocked;
+      self.XMLHttpRequest=function(){throw new Error('Network access is disabled inside this Python app.')};
+      self.WebSocket=function(){throw new Error('Network access is disabled inside this Python app.')};
+      self.EventSource=function(){throw new Error('Network access is disabled inside this Python app.')};
+      self.Worker=function(){throw new Error('Nested workers are disabled inside this Python app.')};
+      self.SharedWorker=self.Worker;
+      self.importScripts=function(){throw new Error('Network access is disabled inside this Python app.')};
+      py.runPython(boot);
+      var run=py.globals.get('ams_run');
+      postMessage({t:'start'});
+      var status=await run(m.code,m.name,send,function(){
+        return new Promise(function(resolve){pending=resolve;postMessage({t:'ask'})});
+      },function(spec){
+        return new Promise(function(resolve){
+          pendingFile=resolve;
+          var parsed={accept:'*/*',multiple:false};
+          try{parsed=JSON.parse(spec)||parsed}catch(e){}
+          postMessage({t:'pick',s:parsed});
+        });
+      },function(spec){
+        return new Promise(function(resolve){pendingGui=resolve;postMessage({t:'gui',s:spec})});
+      });
+      postMessage({t:'end',s:String(status)});
+    }catch(err){
+      running=0;
+      postMessage({t:'fail',s:String(err&&err.message||err)});
+    }
+  })();
+};
+`;
+
+const RUNNER_CSS = `
+
+.ams-gui{font:14px/1.4 system-ui,sans-serif;background:#172236;border:1px solid #334861;border-radius:14px;padding:14px;margin:.5rem 0;color:#f1f5f9;white-space:normal}
+.ams-gui h3{margin:0 0 10px;font-size:18px}.ams-gui__display{background:#0c1625;padding:12px;border-radius:8px;text-align:right;font:22px ui-monospace,monospace;overflow-wrap:anywhere;margin-bottom:10px}
+.ams-gui__grid{display:grid;grid-template-columns:repeat(var(--cols,4),minmax(0,1fr));gap:7px}
+.ams-gui__grid button{min-width:0;min-height:42px;border:0;border-radius:8px;background:#31445e;color:white;font:600 16px system-ui;cursor:pointer}.ams-gui__grid button:hover{background:#466385}.ams-gui__grid button[data-primary="1"]{background:#346bed}
+.ams-gui label{display:block;margin:8px 0}.ams-gui input:not([type=checkbox]),.ams-gui select{display:block;box-sizing:border-box;width:100%;padding:8px;border:1px solid #60758f;border-radius:6px;background:#0c1625;color:white;font:inherit}.ams-gui input[type=checkbox]{margin-right:8px}.ams-gui p{margin:8px 0}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:#0d1117;color:#e6edf3;font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+.bar{display:flex;align-items:center;gap:.6rem;flex:0 0 auto;min-height:2.4rem;padding:.3rem .6rem .3rem .8rem;background:#161b22;border-bottom:1px solid #30363d;font:13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif}
+.dot{flex:0 0 auto;width:.6rem;height:.6rem;border-radius:50%;background:#6e7681}
+.dot.load{background:#d29922;animation:pulse 1s ease-in-out infinite}
+.dot.run{background:#3fb950}
+.dot.wait{background:#58a6ff;animation:pulse 1.4s ease-in-out infinite}
+.dot.err{background:#f85149}
+@keyframes pulse{50%{opacity:.35}}
+.name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.status{flex:1 1 0;min-width:0;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button{flex:0 0 auto;min-height:1.9rem;padding:0 .7rem;border:1px solid #30363d;border-radius:6px;background:#21262d;color:#e6edf3;font:inherit;cursor:pointer}
+button:hover{background:#30363d}
+button:focus-visible,#in:focus-visible{outline:2px solid #58a6ff;outline-offset:1px}
+#screen{flex:1 1 auto;min-height:0;overflow:auto;padding:.7rem .85rem;cursor:text;overscroll-behavior:contain}
+#out{margin:0;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
+#out .e{color:#ff7b72}
+#out .u{color:#79c0ff}
+#out .n{color:#8b949e;font-style:italic}
+#out img{display:block;max-width:100%;height:auto;margin:.5rem 0;border-radius:4px;background:#fff}
+#out .dl{display:inline-block;margin:.35rem .4rem .35rem 0;padding:.35rem .7rem;border:1px solid #30363d;border-radius:6px;background:#21262d;color:#79c0ff;text-decoration:none;font:inherit}
+#out .dl:hover{background:#30363d}
+#out .dl:focus-visible{outline:2px solid #58a6ff;outline-offset:1px}
+#out .note{color:#8b949e;font-style:italic}
+.pick{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.55rem 0;padding:.55rem .65rem;border:1px dashed #30363d;border-radius:6px;background:#161b22;color:#8b949e;font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+.pick b{color:#e6edf3;font-weight:600;overflow-wrap:anywhere}
+#in{display:inline-block;width:12ch;min-width:2ch;max-width:100%;padding:0;border:0;border-bottom:1px dashed #58a6ff;background:transparent;color:#79c0ff;font:inherit;outline:0;caret-color:#58a6ff}
+@media (prefers-reduced-motion:reduce){.dot{animation:none!important}}
+`;
+
+const RUNNER_JS = `
+(function(){
+  var BASE=__BASE__,BOOT=__BOOT__,WORKER=__WORKER__;
+  var out=document.getElementById('out'),screen=document.getElementById('screen');
+  var dot=document.getElementById('dot'),statusEl=document.getElementById('status'),nameEl=document.getElementById('name');
+  var restart=document.getElementById('restart');
+  var code=null,name='app.py',worker=null,field=null,touched=false,chars=0,MAX=400000,watchdog=null,started=0;
+  function state(kind,text){dot.className='dot '+kind;statusEl.textContent=text}
+  function nearEnd(){return screen.scrollHeight-screen.scrollTop-screen.clientHeight<40}
+  function add(node){
+    var stick=nearEnd();
+    if(field&&field.parentNode===out)out.insertBefore(node,field);else out.appendChild(node);
+    if(stick)screen.scrollTop=screen.scrollHeight;
+  }
+  function write(text,cls){
+    // Colour codes and cursor moves mean nothing here; show the words.
+    text=String(text).replace(/\\u001b\\[[0-9;?]*[A-Za-z]/g,'').replace(/\\r\\n?/g,'\\n');
+    if(!text)return;
+    chars+=text.length;
+    while(chars>MAX&&out.firstChild&&out.firstChild!==field){chars-=(out.firstChild.textContent||'').length;out.removeChild(out.firstChild)}
+    var span=document.createElement('span');
+    if(cls)span.className=cls;
+    span.textContent=text;
+    add(span);
+  }
+  function image(src){
+    if(!/^data:image\\/png;base64,[A-Za-z0-9+\\/=]+$/.test(src))return;
+    var img=document.createElement('img');img.alt='Figure drawn by the program';img.src=src;add(img);
+  }
+  function human(bytes){
+    if(bytes<1024)return bytes+' B';
+    if(bytes<1048576)return (bytes/1024).toFixed(bytes<10240?1:0)+' KB';
+    return (bytes/1048576).toFixed(1)+' MB';
+  }
+  // A file the program made: the visitor clicks to save it. The click only
+  // becomes a download because the frame is sandboxed with allow-downloads.
+  function download(item){
+    if(!item||typeof item.data!=='string')return;
+    var name=String(item.name||'file').replace(/[^A-Za-z0-9._ -]/g,'_').slice(0,120)||'file';
+    try{
+      var bin=atob(item.data),arr=new Uint8Array(bin.length);
+      for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+      var url=URL.createObjectURL(new Blob([arr],{type:item.mime||'application/octet-stream'}));
+      var link=document.createElement('a');
+      link.className='dl';link.href=url;link.download=name;
+      link.textContent='\\u2913 Download '+name+' · '+human(arr.length);
+      add(link);
+      setTimeout(function(){try{URL.revokeObjectURL(url)}catch(e){}},600000);
+    }catch(err){write('The file could not be prepared for download.\\n','e')}
+  }
+  // A file the program asked for: the visitor picks it, and the bytes go back
+  // to the worker as base64. The host page never sees them.
+  function pick(spec){
+    state('wait','Waiting for you to choose a file');
+    var accept=(spec&&spec.accept)||'*/*',many=!!(spec&&spec.multiple);
+    var row=document.createElement('div');row.className='pick';
+    var label=document.createElement('span');
+    label.textContent='The program needs a file'+(accept!=='*/*'?' ('+accept+')':'')+(many?' — you may choose more than one':'');
+    var button=document.createElement('button');button.type='button';button.textContent='Choose file'+(many?'s':'');
+    var cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
+    var input=document.createElement('input');
+    input.type='file';input.accept=accept;input.multiple=many;
+    input.style.position='absolute';input.style.width='1px';input.style.height='1px';
+    input.style.opacity='0';input.setAttribute('aria-hidden','true');input.tabIndex=-1;
+    function finish(files){
+      if(field!==row)return;
+      field=null;row.remove();
+      if(worker)worker.postMessage({t:'files',files:files});
+    }
+    function chosen(files){
+      if(!files.length){finish([]);return}
+      write(files.map(function(f){return '\\u2192 '+f.name+'\\n'}).join(''),'u');
+      state('run','Running');
+      finish(files);
+    }
+    input.addEventListener('change',function(){
+      var files=Array.prototype.slice.call(input.files||[]);
+      if(!files.length){finish([]);return}
+      var picked=[],left=files.length,failed=false;
+      function done(){
+        if(--left>0)return;
+        if(failed&&!picked.length)write('That file could not be read.\\n','e');
+        chosen(picked.filter(Boolean));
+      }
+      files.forEach(function(file,index){
+        var reader=new FileReader();
+        reader.onload=function(){
+          var url=String(reader.result||''),comma=url.indexOf(',');
+          if(comma>0)picked[index]={name:file.name,mime:file.type||'application/octet-stream',data:url.slice(comma+1)};
+          done();
+        };
+        reader.onerror=function(){failed=true;done()};
+        reader.readAsDataURL(file);
+      });
+    });
+    button.addEventListener('click',function(){input.click()});
+    cancel.addEventListener('click',function(){
+      write('\\u2192 no file chosen\\n','n');
+      state('run','Running');
+      finish([]);
+    });
+    row.appendChild(label);row.appendChild(button);row.appendChild(cancel);row.appendChild(input);
+    field=row;
+    out.appendChild(row);
+    screen.scrollTop=screen.scrollHeight;
+  }
+  function gui(raw){
+    var spec;try{spec=JSON.parse(raw)}catch(e){spec={}}
+    if(!spec||typeof spec!=='object')spec={};
+    var panel=document.createElement('div');panel.className='ams-gui';
+    var title=document.createElement('h3');title.textContent=String(spec.title||'App').slice(0,120);panel.appendChild(title);
+    if(spec.display!==undefined){var display=document.createElement('div');display.className='ams-gui__display';display.textContent=String(spec.display).slice(0,1000);panel.appendChild(display)}
+    var fields={},items=Array.isArray(spec.fields)?spec.fields.slice(0,30):[];
+    items.forEach(function(item){
+      if(!item||typeof item!=='object')return;
+      var key=String(item.name||'').slice(0,80);if(!/^[A-Za-z][A-Za-z0-9_-]*$/.test(key)||Object.prototype.hasOwnProperty.call(fields,key))return;
+      var label=document.createElement('label');label.appendChild(document.createTextNode(String(item.label||key).slice(0,120)));
+      var input;if(item.type==='select'){
+        input=document.createElement('select');(Array.isArray(item.options)?item.options.slice(0,50):[]).forEach(function(option){var o=document.createElement('option');o.value=String(option).slice(0,200);o.textContent=o.value;input.appendChild(o)});input.value=String(item.value||'');
+      }else{input=document.createElement('input');input.type=item.type==='checkbox'?'checkbox':'text';if(input.type==='checkbox')input.checked=!!item.value;else{input.value=String(item.value||'').slice(0,1000);input.maxLength=1000}}
+      label.appendChild(input);panel.appendChild(label);fields[key]=input;
+    });
+    if(spec.message){var message=document.createElement('p');message.textContent=String(spec.message).slice(0,1000);panel.appendChild(message)}
+    var grid=document.createElement('div');grid.className='ams-gui__grid';grid.style.setProperty('--cols',String(Math.max(1,Math.min(6,Number(spec.columns)||4))));
+    (Array.isArray(spec.buttons)?spec.buttons.slice(0,60):[]).forEach(function(item){
+      if(!item||typeof item!=='object')return;var b=document.createElement('button');b.type='button';b.textContent=String(item.label||item.id||'Button').slice(0,80);if(item.primary)b.dataset.primary='1';
+      b.addEventListener('click',function(){var values={};Object.keys(fields).forEach(function(k){var input=fields[k];values[k]=input.type==='checkbox'?input.checked:input.value});panel.remove();if(worker)worker.postMessage({t:'gui-result',result:{action:String(item.id||item.label||'').slice(0,80),values:values}});state('run','Running')});grid.appendChild(b);
+    });
+    panel.appendChild(grid);out.appendChild(panel);state('wait','Waiting for a button');screen.scrollTop=screen.scrollHeight;
+  }
+  function ask(){
+    state('wait','Waiting for your input');
+    field=document.createElement('input');
+    field.id='in';field.type='text';field.autocomplete='off';field.spellcheck=false;
+    field.setAttribute('autocapitalize','off');field.setAttribute('aria-label','Type your answer and press Enter');
+    field.addEventListener('input',function(){field.style.width=Math.max(12,field.value.length+2)+'ch'});
+    field.addEventListener('keydown',function(e){
+      if(e.key!=='Enter')return;
+      e.preventDefault();
+      var value=field.value,done=field;
+      field=null;done.remove();
+      write(value+'\\n','u');
+      state('run','Running');
+      if(worker)worker.postMessage({t:'line',s:value});
+    });
+    out.appendChild(field);
+    screen.scrollTop=screen.scrollHeight;
+    // Never pull the reader's page to this frame; take the keyboard only once
+    // they have clicked into it.
+    if(touched)try{field.focus({preventScroll:true})}catch(e){field.focus()}
+  }
+  function stop(){
+    if(watchdog){clearTimeout(watchdog);watchdog=null}
+    if(worker){worker.terminate();worker=null}
+    started=0;
+    field=null;
+  }
+  function start(){
+    stop();
+    out.textContent='';chars=0;
+    state('load','Loading Python… the first run downloads about 12 MB');
+    var url;
+    try{
+      // A classic worker on purpose: in a frame with an opaque origin (this one
+      // is sandboxed without allow-same-origin) Chrome never starts a module
+      // worker from a blob: URL, and never says so. importScripts needs neither.
+      url=URL.createObjectURL(new Blob([WORKER],{type:'text/javascript'}));
+      worker=new Worker(url);
+    }catch(err){state('err','This browser cannot run Python here');write('Web Workers are not available in this browser.\\n','e');return}
+    var mine=worker;
+    // One script in the worker loads the interpreter; if the network refuses it
+    // the worker dies quietly, so the wait is bounded and then explained.
+    watchdog=setTimeout(function(){
+      if(mine!==worker||!started)return;
+      state('err','Python could not start');
+      write('Python did not start within 90 seconds. Check the connection to cdn.jsdelivr.net and press Restart.\\n','e');
+      stop();
+    },90000);
+    mine.onmessage=function(e){
+      if(mine!==worker)return;
+      var m=e.data||{};
+      if(m.t==='out')write(m.s,'');
+      else if(m.t==='err')write(m.s,'e');
+      else if(m.t==='img')image(m.s);
+      else if(m.t==='file')download(m.s);
+      else if(m.t==='pick')pick(m.s);
+      else if(m.t==='gui')gui(m.s);
+      else if(m.t==='status')state('load',m.s);
+      else if(m.t==='start'){
+        started=1;
+        if(watchdog){clearTimeout(watchdog);watchdog=null}
+        state('run','Running');
+      }else if(m.t==='ask')ask();
+      else if(m.t==='end'){
+        state(m.s==='error'?'err':'','');
+        statusEl.textContent=m.s==='error'?'Stopped with an error':'Finished';
+        write('\\n— '+(m.s==='error'?'the program stopped with an error':'program finished')+' · Restart to run it again —\\n','n');
+        stop();
+      }else if(m.t==='fail'){
+        state('err','Python could not start');
+        write('Python could not be loaded: '+m.s+'\\nCheck the connection and press Restart.\\n','e');
+        stop();
+      }
+    };
+    mine.onerror=function(e){
+      if(mine!==worker)return;
+      state('err','Python could not start');
+      write('Python could not be loaded'+(e&&e.message?': '+e.message:'')+'.\\n','e');
+      stop();
+    };
+    mine.postMessage({t:'config',base:BASE,boot:BOOT});
+    mine.postMessage({t:'run',code:code,name:name});
+    // The worker needs the blob only to fetch its one script; the interpreter
+    // and its packages come from the CDN after that.
+    setTimeout(function(){try{URL.revokeObjectURL(url)}catch(e){}},10000);
+  }
+  restart.addEventListener('click',function(){touched=true;if(code!==null)start()});
+  screen.addEventListener('mousedown',function(e){
+    touched=true;
+    // Clicking the terminal puts the cursor in the answer box; a drag still selects text.
+    if(field&&e.target!==field)setTimeout(function(){var sel=window.getSelection();if(field&&(!sel||sel.isCollapsed))field.focus()},0);
+  });
+  window.addEventListener('message',function(e){
+    if(e.source!==window.parent)return;
+    var m=e.data||{};
+    if(m.ams!=='pyapp'||m.t!=='code'||typeof m.code!=='string')return;
+    code=m.code;
+    name=String(m.name||'app.py').replace(/[^A-Za-z0-9._ -]/g,'').slice(0,80)||'app.py';
+    if(!/\\.py$/i.test(name))name+='.py';
+    nameEl.textContent=name;
+    start();
+  });
+  state('load','Starting…');
+  window.parent.postMessage({ams:'pyapp',t:'ready'},'*');
+})();
+`;
+
+let runnerCache: string | null = null;
+
+/** The document inside the sandboxed iframe: a small terminal around Pyodide. */
+export function pythonRunnerPage(): string {
+  if (runnerCache) return runnerCache;
+  const js = RUNNER_JS
+    .replace('__BASE__', () => inlineJs(PYODIDE_BASE))
+    .replace('__BOOT__', () => inlineJs(PY_BOOTSTRAP))
+    .replace('__WORKER__', () => inlineJs(WORKER_JS));
+  runnerCache = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Python app</title>
+<style>${RUNNER_CSS}</style>
+</head>
+<body>
+<div class="bar"><span class="dot" id="dot"></span><span class="name" id="name">app.py</span><span class="status" id="status" role="status" aria-live="polite"></span><button type="button" id="restart" title="Stop the program and run it again from the start">Restart</button></div>
+<div id="screen"><pre id="out" aria-live="polite"></pre></div>
+<noscript>This Python app needs JavaScript.</noscript>
+<script>${js}</script>
+</body>
+</html>`;
+  return runnerCache;
+}
+
+/* ----------------------------------------------------------- public page */
+
+/** Layout for the block itself; the theme never has to know about it. */
+export const PYAPP_PUBLIC_CSS = `figure.python-app{display:flex;flex-direction:column;box-sizing:border-box;width:100%;max-width:100%;height:420px;margin:1.5em auto;padding:0;border:1px solid rgba(127,127,127,.35);border-radius:10px;overflow:hidden;background:#0d1117;color:#e6edf3;clear:both}
+figure.python-app.align-left{float:left;clear:none;margin:.3em 1.25em 1em 0}
+figure.python-app.align-right{float:right;clear:none;margin:.3em 0 1em 1.25em}
+figure.python-app>pre{flex:1 1 auto;min-height:0;margin:0;padding:.8rem 1rem;border:0;border-radius:0;overflow:auto;background:transparent;color:inherit;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre;tab-size:4}
+figure.python-app>pre code{padding:0;background:none;color:inherit;font:inherit}
+figure.python-app>pre[hidden]{display:none}
+figure.python-app>iframe{flex:1 1 auto;display:block;width:100%;min-height:0;border:0;background:#0d1117}
+.python-app__poster{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.7rem;padding:1rem;text-align:center;font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+.python-app__poster b{font-size:1rem;overflow-wrap:anywhere}
+.python-app__poster span{color:#8b949e;font-size:.85rem}
+.python-app__poster button{min-height:2.75rem;padding:0 1.4rem;border:0;border-radius:999px;background:#2ea043;color:#fff;font:inherit;font-weight:600;cursor:pointer}
+.python-app__poster button:hover{background:#3fb950}
+.python-app__poster button:focus-visible{outline:2px solid #58a6ff;outline-offset:2px}
+@media (max-width:640px){figure.python-app,figure.python-app.align-left,figure.python-app.align-right{float:none;width:100%!important;margin:1.5em 0}}
+@media print{figure.python-app{height:auto!important}figure.python-app>iframe,.python-app__poster{display:none}figure.python-app>pre[hidden]{display:block;white-space:pre-wrap}}`;
+
+export const PYAPP_PUBLIC_JS = `(function(){
+  var figs=document.querySelectorAll('figure.python-app');
+  if(!figs.length)return;
+  var RUNNER=${JSON.stringify(PYAPP_RUNNER_PATH)};
+  Array.prototype.forEach.call(figs,function(fig){
+    var pre=fig.querySelector('pre');
+    if(!pre||fig.dataset.pyapp)return;
+    fig.dataset.pyapp='1';
+    var code=pre.textContent||'';
+    if(!code.trim())return;
+    var name=fig.getAttribute('title')||'app.py';
+    fig.removeAttribute('title');
+    // A strict Content-Security-Policy drops style attributes; the size the
+    // editor saved is re-applied through the DOM, which the policy allows.
+    var saved=fig.getAttribute('style')||'';
+    var w=saved.match(/(?:^|;)\\s*width\\s*:\\s*(\\d{1,3}(?:\\.\\d+)?)%/i),h=saved.match(/(?:^|;)\\s*height\\s*:\\s*(\\d{2,4})px/i);
+    if(w)fig.style.width=Math.max(20,Math.min(100,parseFloat(w[1])))+'%';
+    if(h)fig.style.height=Math.max(160,Math.min(1600,parseInt(h[1],10)))+'px';
+    var started=false;
+    function start(){
+      if(started)return;
+      started=true;
+      var poster=fig.querySelector('.python-app__poster');
+      if(poster)poster.remove();
+      pre.hidden=true;
+      var frame=document.createElement('iframe');
+      frame.setAttribute('sandbox','allow-scripts allow-downloads');
+      frame.setAttribute('title','Python app: '+name);
+      frame.setAttribute('referrerpolicy','no-referrer');
+      window.addEventListener('message',function(e){
+        if(e.source!==frame.contentWindow)return;
+        var m=e.data||{};
+        if(m.ams==='pyapp'&&m.t==='ready')frame.contentWindow.postMessage({ams:'pyapp',t:'code',code:code,name:name},'*');
+      });
+      frame.src=RUNNER;
+      fig.appendChild(frame);
+    }
+    if(fig.classList.contains('python-app--manual')){
+      pre.hidden=true;
+      var poster=document.createElement('div');
+      poster.className='python-app__poster';
+      var title=document.createElement('b');title.textContent=name;
+      var note=document.createElement('span');note.textContent='Python app · runs in your browser';
+      var button=document.createElement('button');button.type='button';button.textContent='\\u25B6 Run';
+      button.addEventListener('click',start);
+      poster.appendChild(title);poster.appendChild(note);poster.appendChild(button);
+      fig.appendChild(poster);
+    }else if('IntersectionObserver' in window){
+      // Python is a large download: fetch it when the app is about to be seen.
+      var seen=new IntersectionObserver(function(entries){
+        if(entries.some(function(entry){return entry.isIntersecting})){seen.disconnect();start()}
+      },{rootMargin:'300px'});
+      seen.observe(fig);
+    }else start();
+  });
+})();`;
+
+const HAS_PYAPP = /<figure\b[^>]*\bclass="[^"]*\bpython-app\b/i;
+
+/** True when rendered HTML carries at least one Python app block. */
+export const hasPythonApp = (html: string): boolean => HAS_PYAPP.test(html);
+
+/**
+ * Adds the block's stylesheet and loader to a rendered page that uses it.
+ * Pages without a Python app are returned untouched, so they pay nothing.
+ */
+export function withPythonApps(html: string, nonce: string): string {
+  if (!hasPythonApp(html)) return html;
+  const attr = nonce ? ` nonce="${nonce}"` : '';
+  const style = `<style${attr}>${PYAPP_PUBLIC_CSS}</style>`;
+  const script = `<script${attr}>${PYAPP_PUBLIC_JS}</script>`;
+  const withStyle = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, () => `${style}</head>`) : style + html;
+  return /<\/body>/i.test(withStyle) ? withStyle.replace(/<\/body>(?![\s\S]*<\/body>)/i, () => `${script}</body>`) : withStyle + script;
+}

@@ -1,3 +1,0 @@
-# Copy to .dev.vars for local development:  cp .dev.vars.example .dev.vars
-# Generate a strong token:  openssl rand -hex 32
-ADMIN_TOKEN=change-me-please

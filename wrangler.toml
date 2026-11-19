@@ -1,37 +1,43 @@
-# Cloudflare Worker — AMS CMS (Aligned)
-# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
-
-name = "ams-cms-aligned"
-main = "src/index.js"
+name = "edge-cms"
+main = "src/index.ts"
 compatibility_date = "2025-01-01"
 workers_dev = true
 
-# ---------------------------------------------------------------------------
-# D1 Database — name: bcms
-# Create it once with:  npm run db:create        (wrangler d1 create bcms)
-# Then paste the returned database_id below.
-# ---------------------------------------------------------------------------
+# Import theme CSS files as text (.html and .sql are text by default).
+[[rules]]
+type = "Text"
+globs = ["**/*.css"]
+fallthrough = true
+
+# Scheduled publishing + migrations.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# --- Bindings -------------------------------------------------------------
+# No IDs needed: `wrangler deploy` creates the D1 database and KV namespace
+# automatically on the first deploy and reuses them afterwards.
+# Uploaded media is stored in KV, so no R2 bucket (and no payment card) is needed.
+# To use resources you created yourself, add `database_id = "..."` / `id = "..."`.
+# Resource names: D1 database "bcms", KV namespace "bcms"
+# (create manually with: npx wrangler d1 create bcms
+#                        npx wrangler kv namespace create bcms)
+
 [[d1_databases]]
 binding = "DB"
 database_name = "bcms"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
-migrations_dir = "migrations"
 
-# ---------------------------------------------------------------------------
-# KV Namespace — name: bcms
-# Create it once with:  npm run kv:create        (wrangler kv namespace create bcms)
-# Then paste the returned id below (and as preview_id for local dev).
-# In the Cloudflare dashboard the namespace will show as "bcms".
-# ---------------------------------------------------------------------------
 [[kv_namespaces]]
 binding = "KV"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_YOUR_KV_PREVIEW_ID"
 
-[vars]
-ENVIRONMENT = "production"
+# Custom domain (optional). The CMS works on workers.dev without this.
+# [[routes]]
+# pattern = "example.com"
+# custom_domain = true
 
-# Optional: set a secret for write protection (recommended in production)
-#   npx wrangler secret put ADMIN_TOKEN
-# Locally, put ADMIN_TOKEN=... in a .dev.vars file (see .dev.vars.example).
-# If ADMIN_TOKEN is not set, writes are open (local dev only).
+# Theme screenshots ship as packaged files. They are read through the normal
+# file store as ArrayBuffers (never imported as text), so the zip upload and the
+# PNG in a ZIP export stay byte-for-byte identical.
+[[rules]]
+type = "Data"
+globs = ["**/*.png", "**/*.jpg", "**/*.jpeg", "**/*.webp", "**/*.avif", "**/*.ico"]
+fallthrough = true

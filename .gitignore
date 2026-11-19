@@ -1,9 +1,6 @@
 node_modules/
 .wrangler/
 .dev.vars
-.dev.vars.*
-!.dev.vars.example
-dist/
-build/
 *.log
-.DS_Store
+dist/
+data/
