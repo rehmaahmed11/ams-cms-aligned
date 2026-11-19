@@ -18,10 +18,13 @@ crons = ["*/5 * * * *"]
 # automatically on the first deploy and reuses them afterwards.
 # Uploaded media is stored in KV, so no R2 bucket (and no payment card) is needed.
 # To use resources you created yourself, add `database_id = "..."` / `id = "..."`.
+# Resource names: D1 database "bcms", KV namespace "bcms"
+# (create manually with: npx wrangler d1 create bcms
+#                        npx wrangler kv namespace create bcms)
 
 [[d1_databases]]
 binding = "DB"
-database_name = "edge_cms"
+database_name = "bcms"
 
 [[kv_namespaces]]
 binding = "KV"

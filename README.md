@@ -56,7 +56,7 @@ npx wrangler login
 npx wrangler deploy
 ```
 
-`wrangler.toml` has no resource IDs on purpose: the first deploy creates the D1 database and KV namespace and later deploys reuse them. If your wrangler refuses to do that, create them yourself (`npx wrangler d1 create edge_cms`, `npx wrangler kv namespace create KV`) and add `database_id = "..."` and `id = "..."` to the matching blocks.
+`wrangler.toml` has no resource IDs on purpose: the first deploy creates the D1 database (`bcms`) and KV namespace (`bcms`) and later deploys reuse them. If your wrangler refuses to do that, create them yourself (`npx wrangler d1 create bcms`, `npx wrangler kv namespace create bcms`) and add `database_id = "..."` and `id = "..."` to the matching blocks.
 
 Open the `*.workers.dev` URL wrangler prints and finish the installer. To use your own domain, add it under **Workers & Pages → your worker → Settings → Domains & Routes**.
 
