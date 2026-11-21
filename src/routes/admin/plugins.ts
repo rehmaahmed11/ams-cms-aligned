@@ -2,15 +2,20 @@ import { Hono } from 'hono';
 import type { AppEnv, Ctx } from '../../types';
 import { can } from '../../lib/auth';
 import { bumpCache, getSettings, setSettings } from '../../lib/config';
-import { BUILTIN_PLUGINS, HOOK_POINTS, VERIFICATION_ENGINES, extractVerificationCode, isHookPoint, listHooks, pluginOn, pluginSetting, verificationMetaTag, type HookRow } from '../../lib/plugins';
+import { BUILTIN_PLUGINS, HOOK_POINTS, VERIFICATION_ENGINES, defaultRobotsTxt, extractVerificationCode, isHookPoint, listHooks, pluginOn, pluginSetting, verificationMetaTag, type HookRow } from '../../lib/plugins';
+import { readPluginUpload, PluginPackageError } from '../../lib/plugin-package';
+import { hasColumn } from '../../lib/schema';
+import { audit } from '../../lib/audit';
 import { pageHead } from '../../admin/components';
 import { csrfField, errorPage, go, html, layout, raw } from '../../lib/ui';
 
 /**
- * Plugins. Two kinds:
+ * Plugins. Three kinds:
  *  - built-in features (sitemap, robots.txt, RSS) that can be switched on/off;
- *  - snippets: small pieces of HTML attached to <head> or before </body>.
- * Snippet code is raw, so this section is admin-only.
+ *  - snippets: small pieces of HTML attached to <head> or before </body>;
+ *  - zip-uploaded packages: a plugin.json plus one code file, stored exactly
+ *    like snippets and running through the same injection path.
+ * All snippet/package code is raw, so this section is admin-only.
  */
 const plugins = new Hono<AppEnv>();
 
@@ -45,8 +50,19 @@ ${error ? html`<div class="flash err" role="alert">${error}</div>` : ''}
 </form>`, '/plugins');
 }
 
+/** Rows with the package identity when the database has it; plain snippets otherwise. */
+async function loadPlugins(c: Ctx): Promise<HookRow[]> {
+  if (await hasColumn(c.env, 'hooks', 'slug')) {
+    const { results } = await c.env.DB.prepare(
+      'SELECT id, name, hook, code, enabled, created_at, slug, version, description FROM hooks WHERE site_id=1 ORDER BY id DESC',
+    ).all<HookRow>();
+    return results;
+  }
+  return listHooks(c.env);
+}
+
 plugins.get('/plugins', async (c) => {
-  const [settings, snippets] = await Promise.all([getSettings(c.env), listHooks(c.env)]);
+  const [settings, snippets] = await Promise.all([getSettings(c.env), loadPlugins(c)]);
   const base = c.var.base;
   return layout(c, 'Plugins', html`
 ${pageHead({ title: 'Plugins', actions: html`<a class="btn" href="${base}/plugins/new">Add plugin</a>` })}
@@ -71,7 +87,7 @@ ${pageHead({ title: 'Plugins', actions: html`<a class="btn" href="${base}/plugin
   ${snippets.length ? html`<ul class="list">
     ${snippets.map((h) => html`<li>
       <div class="t"><a href="${base}/plugins/${h.id}">${h.name}</a>
-        <small>${HOOK_POINTS.find((p) => p.value === h.hook)?.label ?? h.hook} · ${h.code.length} characters · added ${h.created_at.slice(0, 10)}</small></div>
+        <small>${HOOK_POINTS.find((p) => p.value === h.hook)?.label ?? h.hook} · ${h.code.length} characters · added ${h.created_at.slice(0, 10)}${h.slug ? html` · <span class="pill on">v${h.version}</span> zip package` : ''}</small>${h.description ? html`<small class="muted">${h.description}</small>` : ''}</div>
       <span class="pill ${h.enabled ? 'on' : 'off'}">${h.enabled ? 'Active' : 'Inactive'}</span>
       <form method="post" action="${base}/plugins/${h.id}/toggle" class="inline">
         ${csrfField(c)}<button class="btn ghost small" type="submit">${h.enabled ? 'Deactivate' : 'Activate'}</button>
@@ -80,7 +96,17 @@ ${pageHead({ title: 'Plugins', actions: html`<a class="btn" href="${base}/plugin
         ${csrfField(c)}<button class="btn danger small" type="submit">Delete</button>
       </form>
     </li>`)}
-  </ul>` : html`<p class="muted" style="margin:0">No custom plugins yet. Add one to inject analytics, a chat widget, verification meta tags or a stylesheet.</p>`}
+  </ul>` : html`<p class="muted" style="margin:0">No custom plugins yet. Add one to inject analytics, a chat widget, verification meta tags or a stylesheet — or upload a plugin package below.</p>`}
+</div>
+<div class="card">
+  <h2>Upload a plugin</h2>
+  <form method="post" action="${base}/plugins/upload" enctype="multipart/form-data">
+    ${csrfField(c)}
+    <label for="plugin-file" style="margin-top:0">Plugin file (.zip)</label>
+    <input type="file" id="plugin-file" name="plugin" accept=".zip,application/zip" required>
+    <p class="hint">A plugin is a tiny package: a <code>plugin.json</code> (name, hook, version) plus one code file. It installs as the same kind of plugin as the snippets above — one entry in “Your plugins”, same injection, same trust model — and uploading a new version of the same package replaces it. Up to 2 MB zipped with up to 20,000 characters of code. Admins only: the code is not sanitized.</p>
+    <p style="margin:.8rem 0 0"><button class="btn" type="submit">Upload plugin</button></p>
+  </form>
 </div>
 <div class="card">
   <h2>Plugin hooks</h2>
@@ -222,4 +248,91 @@ plugins.post('/plugins/:id{[0-9]+}/delete', async (c) => {
   return go(c, '/plugins', { ok: `${row.name} deleted.` });
 });
 
+
+/* ------------------------------------------------------- zip upload */
+/**
+ * Upload a plugin package: plugin.json (name, hook, version) + one code file.
+ * The package is stored in the hooks table exactly like a snippet, so it
+ * renders, toggles, edits and deletes through the same paths; its package
+ * identity (slug, version, description) is kept alongside. Uploading the same
+ * slug replaces the installed package, keeping its on/off state.
+ */
+plugins.post('/plugins/upload', async (c) => {
+  const file = c.var.form.get('plugin');
+  if (!file || typeof file === 'string' || !file.size) return go(c, '/plugins', { err: 'Choose a plugin file.' });
+  if (!(await hasColumn(c.env, 'hooks', 'slug'))) {
+    return go(c, '/plugins', { err: 'This database cannot store plugins yet. Run updates from the Updates screen first.' });
+  }
+  let upload;
+  try {
+    upload = await readPluginUpload(await file.arrayBuffer());
+  } catch (err) {
+    return go(c, '/plugins', { err: err instanceof PluginPackageError ? err.message : 'Could not read the plugin file.' });
+  }
+  const existing = await c.env.DB.prepare('SELECT id, enabled FROM hooks WHERE site_id=1 AND slug=?')
+    .bind(upload.slug).first<{ id: number; enabled: number }>();
+  const now = new Date().toISOString();
+  if (existing) {
+    await c.env.DB.prepare('UPDATE hooks SET name=?, hook=?, code=?, version=?, description=? WHERE id=?')
+      .bind(upload.name, upload.hook, upload.code, upload.version, upload.description, existing.id).run();
+  } else {
+    await c.env.DB.prepare(
+      'INSERT INTO hooks (site_id,hook,name,code,enabled,slug,version,description,created_at) VALUES (1,?,?,?,1,?,?,?,?)',
+    ).bind(upload.hook, upload.name, upload.code, upload.slug, upload.version, upload.description, now).run();
+  }
+  await bumpCache(c.env, c.var.cfg);
+  await audit(c, existing ? 'updated' : 'installed', 'plugin', `${existing ? 'Updated' : 'Installed'} plugin “${upload.name}” v${upload.version}`, upload.slug);
+  return go(c, '/plugins', { ok: `“${upload.name}” v${upload.version} ${existing ? 'updated' : 'installed'}.` });
+});
+
+
+/* ------------------------------------------------- robots.txt (built-in) */
+/**
+ * Built-in plugin screen. The saved text is served at /robots.txt (see the
+ * public route); an empty box means "use the generated default", so clearing
+ * the box and saving reverts to the built-in file. If the sitemap plugin is
+ * on and the file has no Sitemap line, the route appends one automatically.
+ */
+plugins.get('/plugins/robots-txt', async (c) => {
+  const settings = await getSettings(c.env);
+  const base = c.var.base;
+  const on = pluginOn(settings, 'robots');
+  const custom = (settings.robots_txt ?? '').trim();
+  const origin = new URL(c.req.url).origin;
+  const text = custom || defaultRobotsTxt(origin, pluginOn(settings, 'sitemap'));
+  return layout(c, 'Robots.txt', html`
+${pageHead({ title: 'Robots.txt', actions: html`<a class="btn ghost" href="${base}/plugins">&larr; Plugins</a>` })}
+<div class="card">
+  <p style="margin-top:0"><span class="pill ${on ? 'on' : 'off'}">${on ? 'Active' : 'Inactive'}</span>
+  <span class="hint" style="margin-left:.5rem">${custom ? 'Custom file — the text below is what is saved; /robots.txt serves it with the sitemap line updated to match the Sitemap plugin.' : 'The default generated file is served at /robots.txt.'}</span></p>
+  <form method="post" action="${base}/plugins/robots-txt">
+    ${csrfField(c)}
+    <label for="robots_txt">robots.txt content</label>
+    <textarea id="robots_txt" name="robots_txt" class="code" rows="12" spellcheck="false" maxlength="8000">${text}</textarea>
+    <p class="hint">Edit the whole file. An empty box restores the generated default. When the Sitemap plugin is on and the file has no <code>Sitemap:</code> line, one is appended automatically; when it is off, any <code>Sitemap:</code> line is dropped from the served file.</p>
+    <p class="row" style="margin:1.1rem 0 0"><button class="btn" type="submit">Save robots.txt</button>
+    <button class="btn ghost" type="submit" name="reset" value="1">Reset to default</button></p>
+  </form>
+  <p class="hint" style="margin-bottom:0">Verify the file on the public site: <a href="/robots.txt" target="_blank" rel="noopener">open /robots.txt</a>.</p>
+</div>`, '/plugins');
+});
+
+plugins.post('/plugins/robots-txt', async (c) => {
+  const f = c.var.form;
+  if (f.get('reset') === '1') {
+    await setSettings(c.env, { robots_txt: '' });
+    return go(c, '/plugins/robots-txt', { ok: 'Robots.txt reset to the built-in default.' });
+  }
+  const raw = String(f.get('robots_txt') ?? '').slice(0, 8000);
+  // Strip control characters (except tab and newline); the file is plain text.
+  const cleaned = raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+  if (!cleaned) {
+    await setSettings(c.env, { robots_txt: '' });
+    return go(c, '/plugins/robots-txt', { ok: 'Robots.txt reset to the built-in default.' });
+  }
+  await setSettings(c.env, { robots_txt: cleaned });
+  return go(c, '/plugins/robots-txt', { ok: 'Robots.txt saved.' });
+});
+
 export default plugins;
+
