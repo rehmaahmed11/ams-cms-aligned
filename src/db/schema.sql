@@ -207,6 +207,9 @@ CREATE TABLE IF NOT EXISTS hooks (
   name TEXT NOT NULL,
   code TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
+  slug TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 

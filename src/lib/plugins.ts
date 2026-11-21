@@ -6,7 +6,7 @@ export type BuiltinPlugin = { key: string; name: string; description: string; ad
 
 export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   { key: 'sitemap', name: 'XML Sitemap', description: 'Publishes /sitemap.xml listing every published page, post, category and tag.', adminUrl: '/sitemap.xml' },
-  { key: 'robots', name: 'Robots.txt', description: 'Publishes /robots.txt so search engines know what to crawl and where the sitemap is.', adminUrl: '/robots.txt' },
+  { key: 'robots', name: 'Robots.txt', description: 'Publishes /robots.txt so search engines know what to crawl and where the sitemap is.', adminUrl: '/robots.txt', configureUrl: '/plugins/robots-txt' },
   { key: 'rss', name: 'RSS Feed', description: 'Publishes /feed.xml with the twenty newest posts so readers can subscribe.', adminUrl: '/feed.xml' },
   {
     key: 'search-verification', name: 'Search Console Verification',
@@ -74,10 +74,28 @@ export const HOOK_POINTS = [
 export type HookPoint = (typeof HOOK_POINTS)[number]['value'];
 export const isHookPoint = (v: string): v is HookPoint => HOOK_POINTS.some((h) => h.value === v);
 
-export type HookRow = { id: number; name: string; hook: string; code: string; enabled: number; created_at: string };
+export type HookRow = {
+  id: number; name: string; hook: string; code: string; enabled: number; created_at: string;
+  /** Zip-installed plugins only: the package identity ('' = a plain snippet). */
+  slug?: string;
+  version?: string;
+  description?: string;
+};
 
 export async function listHooks(env: Env): Promise<HookRow[]> {
   const { results } = await env.DB.prepare('SELECT id, name, hook, code, enabled, created_at FROM hooks WHERE site_id=1 ORDER BY id DESC')
     .all<HookRow>();
   return results;
+}
+
+/**
+ * The file the built-in Robots.txt plugin serves by default: an allow-all for
+ * crawlers with the backups folder excluded, plus the sitemap line when the
+ * sitemap plugin is on. Used by the public route and pre-filled in the screen,
+ * so the screen always shows exactly what the site serves.
+ */
+export function defaultRobotsTxt(origin: string, sitemapOn: boolean): string {
+  const lines = ['User-agent: *', 'Allow: /', 'Disallow: /media/backups/'];
+  if (sitemapOn) lines.push('', `Sitemap: ${origin}/sitemap.xml`);
+  return lines.join('\n') + '\n';
 }

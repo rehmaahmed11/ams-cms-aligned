@@ -1522,7 +1522,9 @@ test('an upgraded site drops its bundled themes: a clean slate until the owner u
 
   const updates = await panel.get(`${panel.admin}/updates`);
   assert.match(updates.text, /No bundled themes/, 'the pending migration is named');
-  assert.match((await panel.adminPost('/updates/run', {})).location, /schema version 13/);
+  const latest = Number((updates.text.match(/<dd>\d+ of (\d+)<\/dd>/) || [])[1]);
+  assert.ok(latest > 13, 'the screen names the pending migrations and the version they reach');
+  assert.match((await panel.adminPost('/updates/run', {})).location, new RegExp(`schema version ${latest}`));
 
   const check = new DatabaseSync(`${panel.dataDir}/cms.sqlite`);
   const rows = check.prepare('SELECT slug, active FROM themes ORDER BY slug').all().map((r) => `${r.slug}:${r.active}`);

@@ -6,7 +6,7 @@ import { bumpCache, cfgFor, getConfig, getSettings, type Settings } from '../lib
 import { findContent, listPosts, mediaUrl, permalinkStyle, postAssignedPages, postUrl, searchContent, toViews, type ContentView } from '../lib/content';
 import { hasTable } from '../lib/schema';
 import { getFile } from '../lib/files';
-import { pluginOn } from '../lib/plugins';
+import { defaultRobotsTxt, pluginOn } from '../lib/plugins';
 import { PAGE_CACHE_TTL, activeTheme, cacheKey, renderTheme, themeBySlug, type PageMeta } from '../lib/render';
 import { resolveSettings } from '../lib/theme-manifest';
 import { previewFor } from '../lib/preview';
@@ -283,9 +283,29 @@ site.get('/robots.txt', async (c) => {
   const settings = await getSettings(c.env);
   if (!pluginOn(settings, 'robots')) return c.notFound();
   const origin = new URL(c.req.url).origin;
-  const lines = ['User-agent: *', 'Allow: /', 'Disallow: /media/backups/'];
-  if (pluginOn(settings, 'sitemap')) lines.push('', `Sitemap: ${origin}/sitemap.xml`);
-  return new Response(lines.join('\n') + '\n', { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=600' } });
+  const sitemapOn = pluginOn(settings, 'sitemap');
+  const sitemapLine = `Sitemap: ${origin}/sitemap.xml`;
+  const hasSitemapLine = (text: string) => /^[ \t]*sitemap:/im.test(text);
+  const custom = (settings.robots_txt ?? '').trim();
+  let text: string;
+  if (custom) {
+    if (sitemapOn) {
+      // The saved file is served as saved; when it has no Sitemap: line of its
+      // own, one is appended (never duplicated).
+      text = hasSitemapLine(custom)
+        ? custom
+        : `${custom.replace(/\n+$/, '')}\n${sitemapLine}`;
+    } else {
+      // The sitemap line must reflect the toggle: a saved line pointing at a
+      // disabled sitemap is dropped and the rest of the file is served as saved.
+      text = custom.split('\n').filter((line) => !/^[ \t]*sitemap:/i.test(line)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+    if (!text) text = defaultRobotsTxt(origin, false); // the file became empty: fall back to the default
+  } else {
+    text = defaultRobotsTxt(origin, sitemapOn);
+  }
+  const body = text.endsWith('\n') ? text : text + '\n';
+  return new Response(body, { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=600' } });
 });
 
 site.get('/feed.xml', async (c) => {

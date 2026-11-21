@@ -6,7 +6,7 @@ import { resetSchemaCache } from '../../lib/schema';
  * by the installer; each entry here upgrades an already-installed database.
  * Append new entries with the next version number - never edit old ones.
  */
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /**
  * A migration statement that must not take the whole batch down.
@@ -154,6 +154,18 @@ const POST_PAGES = [
 ];
 
 /**
+ * Zip-uploaded plugins. The package identity (slug, version, description) lives
+ * on the hooks row so a zip plugin behaves exactly like any other plugin: it
+ * renders, toggles, edits and deletes through the same paths. Existing snippet
+ * plugins carry empty values, which means "snippet, no package".
+ */
+const PLUGINS = [
+  tolerant("ALTER TABLE hooks ADD COLUMN slug TEXT NOT NULL DEFAULT ''"),
+  tolerant("ALTER TABLE hooks ADD COLUMN version TEXT NOT NULL DEFAULT ''"),
+  tolerant("ALTER TABLE hooks ADD COLUMN description TEXT NOT NULL DEFAULT ''"),
+];
+
+/**
  * A migration is a list of SQL statements, and optionally a step in code for
  * work SQL alone cannot do (deleting a retired theme's files from the file
  * store).
@@ -209,6 +221,13 @@ export const migrations: Migration[] = [
       const cfg = await getConfig(env);
       if (cfg) await bumpCache(env, cfg);
     },
+  },
+  {
+    // Zip-uploaded plugins. Existing snippet rows get empty slug/version, so
+    // they stay exactly as they are; the new code path fills these in.
+    version: 14,
+    name: 'Plugin packages (zip upload)',
+    statements: PLUGINS,
   },
 ];
 
