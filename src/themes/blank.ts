@@ -50,7 +50,7 @@ const page = `<h1>{{page.title}}</h1>
 const post = `<article>
 <h1>{{post.title}}</h1>
 <p><time datetime="{{post.date_iso}}">{{post.date}}</time>{{#if post.author}} · {{post.author}}{{/if}}</p>
-{{#if post.featured_image}}<img src="{{post.featured_image}}" alt="{{post.featured_alt}}">{{/if}}
+{{#if post.featured_image}}<img class="post-featured" src="{{post.featured_image}}" alt="{{post.featured_alt}}" style="display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:0.75rem;margin:0 0 1.25rem">{{/if}}
 {{{post.content}}}
 {{#if post.categories}}<p>Posted in {{#each post.categories}}<a href="{{url}}">{{name}}</a> {{/each}}</p>{{/if}}
 {{#if post.tags}}<p>Tagged {{#each post.tags}}<a href="{{url}}">{{name}}</a> {{/each}}</p>{{/if}}
